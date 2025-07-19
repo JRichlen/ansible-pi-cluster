@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "redhat.ansible",
+    "ms-python.python",
+    "ms-vscode-remote.vscode-remote-extensionpack"
+  ]
+}

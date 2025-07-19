@@ -1,0 +1,84 @@
+#!/bin/bash
+# Main launcher script for network discovery tools
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UTILS_DIR="$SCRIPT_DIR/utils"
+
+# Function to display usage
+show_usage() {
+  echo "Ansible Pi Cluster - Network Discovery Tools"
+  echo "============================================="
+  echo ""
+  echo "Usage: $0 [command]"
+  echo ""
+  echo "Commands:"
+  echo "  scan, find          - Find devices on local network (main script)"
+  echo "  subnet              - Discover local subnet only"
+  echo "  nmap <subnet>       - Detailed nmap scan (requires sudo)"
+  echo "  ping <subnet>       - Simple ping sweep scan"
+  echo "  help, -h, --help    - Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  $0 scan                    # Auto-discover and scan local network"
+  echo "  sudo $0 scan               # Same with detailed MAC info"
+  echo "  $0 subnet                  # Just show the detected subnet"
+  echo "  sudo $0 nmap 192.168.1.0/24  # Detailed scan of specific subnet"
+  echo "  $0 ping 192.168.1.0/24     # Ping sweep of specific subnet"
+  echo ""
+}
+
+# Parse command line arguments
+case "${1:-scan}" in
+  "scan"|"find")
+    echo "Running network scan..."
+    # Discover the local subnet dynamically
+    echo "Discovering local subnet..."
+    SUBNET=$("$UTILS_DIR/discover_subnet.sh")
+    
+    if [ $? -ne 0 ] || [ -z "$SUBNET" ]; then
+      echo "Error: Could not discover subnet. Please ensure your network connection is active and try again."
+      exit 1
+    fi
+    
+    echo "Detected subnet: $SUBNET"
+    echo ""
+    
+    # Check if running as root/sudo for nmap
+    if [ "$EUID" -eq 0 ] && command -v nmap >/dev/null 2>&1; then
+      echo "Using nmap for detailed scan (with MAC addresses)..."
+      "$UTILS_DIR/scan_network.sh" "$SUBNET"
+    else
+      echo "Using ping sweep method (no MAC addresses)..."
+      echo "For detailed scan with MAC addresses, run: sudo $0"
+      echo ""
+      "$UTILS_DIR/simple_scan.sh" "$SUBNET"
+    fi
+    ;;
+  "subnet")
+    echo "Discovering local subnet..."
+    "$UTILS_DIR/discover_subnet.sh"
+    ;;
+  "nmap")
+    if [ -z "$2" ]; then
+      echo "Error: Please specify a subnet (e.g., 192.168.1.0/24)"
+      exit 1
+    fi
+    "$UTILS_DIR/scan_network.sh" "$2"
+    ;;
+  "ping")
+    if [ -z "$2" ]; then
+      echo "Error: Please specify a subnet (e.g., 192.168.1.0/24)"
+      exit 1
+    fi
+    "$UTILS_DIR/simple_scan.sh" "$2"
+    ;;
+  "help"|"-h"|"--help")
+    show_usage
+    ;;
+  *)
+    echo "Error: Unknown command '$1'"
+    echo ""
+    show_usage
+    exit 1
+    ;;
+esac
