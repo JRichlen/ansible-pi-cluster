@@ -5,7 +5,7 @@
   vars:
     connection_timeout: 10
     results_dir: /tmp/ansible_connectivity_results
-    
+
   tasks:
     # Phase 1: Basic network connectivity test
     - name: Test basic network connectivity (port 22)
@@ -41,7 +41,7 @@
         state: directory
         mode: '0755'
       delegate_to: localhost
-      run_once: true
+      when: inventory_hostname == groups['ubuntu'][0]
 
     - name: Store connectivity test results
       ansible.builtin.copy:

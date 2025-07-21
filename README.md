@@ -9,6 +9,7 @@ A modern, interactive Ansible automation system for managing Raspberry Pi cluste
 - **💻 Perfect TTY Handling**: All prompts are visible and interactive, no hanging commands
 - **⚡ Efficient Workflow**: Cached connectivity results, skip unnecessary steps
 - **🔒 Robust Architecture**: Clean separation of playbook logic and user interaction
+- **🔑 Master Node SSH**: Automatic SSH key generation and distribution for inter-node communication
 
 ## 🚀 Quick Start
 
@@ -25,7 +26,8 @@ task playbook -- <playbook-name>
 # Examples:
 task playbook -- 0_test-connectivity    # Test connectivity only
 task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detection
-task playbook -- 2_update-packages      # Update system packages
+task playbook -- 2_test-master-connectivity  # Test master node SSH to workers
+task playbook -- 3_update-packages      # Update system packages
 ```
 
 ### What You'll Experience

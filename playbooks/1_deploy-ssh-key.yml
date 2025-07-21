@@ -12,7 +12,6 @@
         path: "{{ ssh_public_key_path }}"
       delegate_to: localhost
       register: ssh_key_check
-      run_once: true
       become: false
 
     - name: Fail if no SSH public key found
@@ -27,8 +26,8 @@
         src: "{{ ssh_public_key_path }}"
       delegate_to: localhost
       register: ssh_public_key_content
-      run_once: true
       become: false
+      delegate_facts: true
 
     - name: Ensure .ssh directory exists
       ansible.builtin.file:
@@ -81,3 +80,66 @@
           - "✅ SSH key deployed successfully to {{ inventory_hostname }}"
           - "✅ Passwordless sudo configured for {{ ansible_user }}"
           - "✅ Essential packages installed"
+
+    # Phase: Master Node SSH Key Setup for Inter-Node Communication
+    - name: Check if master node SSH key exists
+      ansible.builtin.stat:
+        path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster"
+      register: master_key_check
+      when: inventory_hostname == 'ubuntu-1.local'
+      become: false
+
+    - name: Generate SSH key pair on master node
+      ansible.builtin.command:
+        cmd: >-
+          ssh-keygen -t rsa -b 4096
+          -f /home/{{ ansible_user }}/.ssh/id_rsa_cluster
+          -N ''
+          -C "{{ ansible_user }}@{{ inventory_hostname }}-cluster-master"
+      become: false
+      when:
+        - inventory_hostname == 'ubuntu-1.local'
+        - not master_key_check.stat.exists
+      register: key_generation
+      changed_when: key_generation.rc == 0
+
+    - name: Set proper permissions on master SSH keys
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        mode: "{{ item.mode }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - { path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster", mode: '0600' }
+        - { path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster.pub", mode: '0644' }
+      when:
+        - inventory_hostname == 'ubuntu-1.local'
+        - not master_key_check.stat.exists or key_generation is changed
+      become: false
+
+    - name: Read master node public key
+      ansible.builtin.slurp:
+        src: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster.pub"
+      register: master_public_key
+      delegate_to: ubuntu-1.local
+      become: false
+      when: "'ubuntu-1.local' in groups['ubuntu']"
+
+    - name: Deploy master node public key to worker nodes
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ master_public_key.content | b64decode | trim }}"
+        state: present
+        comment: "Master node (ubuntu-1) key"
+      when:
+        - inventory_hostname != 'ubuntu-1.local'
+        - master_public_key is defined
+
+    - name: Display master key deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "✅ Master node SSH key setup completed"
+          - "✅ Worker node {{ inventory_hostname }} can now accept SSH from ubuntu-1.local"
+      when:
+        - inventory_hostname != 'ubuntu-1.local'
+        - master_public_key is defined

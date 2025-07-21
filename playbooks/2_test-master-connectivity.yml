@@ -1,0 +1,63 @@
+---
+- name: Test Master Node SSH Connectivity to Worker Nodes
+  hosts: ubuntu-1.local
+  gather_facts: true
+  vars:
+    worker_nodes:
+      - ubuntu-2.local
+      - ubuntu-3.local
+      - ubuntu-4.local
+    connection_timeout: 5
+
+  tasks:
+    - name: Verify master SSH private key exists
+      ansible.builtin.stat:
+        path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster"
+      register: master_private_key
+      become: false
+
+    - name: Fail if master SSH key not found
+      ansible.builtin.fail:
+        msg: |
+          Master node SSH private key not found at /home/{{ ansible_user }}/.ssh/id_rsa_cluster
+          Please run the SSH key deployment playbook first: task playbook -- 1_deploy-ssh-key
+      when: not master_private_key.stat.exists
+
+    - name: Test SSH connectivity from master to worker nodes
+      ansible.builtin.command:
+        cmd: >-
+          ssh -o BatchMode=yes -o PasswordAuthentication=no
+          -o ConnectTimeout={{ connection_timeout }}
+          -o StrictHostKeyChecking=no
+          -i /home/{{ ansible_user }}/.ssh/id_rsa_cluster
+          {{ ansible_user }}@{{ item }}
+          echo "SSH connection successful from {{ inventory_hostname }} to {{ item }}"
+      loop: "{{ worker_nodes }}"
+      register: ssh_connectivity_tests
+      failed_when: false
+      changed_when: false
+      become: false
+
+    - name: Analyze connectivity test results
+      ansible.builtin.set_fact:
+        successful_connections: "{{ ssh_connectivity_tests.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+        failed_connections: "{{ ssh_connectivity_tests.results | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+
+    - name: Display master node connectivity summary
+      ansible.builtin.debug:
+        msg:
+          - "🔍 Master Node SSH Connectivity Test Results"
+          - "✅ Successful connections from {{ inventory_hostname }}:"
+          - "{{ successful_connections | join(', ') if successful_connections else 'None' }}"
+          - "❌ Failed connections from {{ inventory_hostname }}:"
+          - "{{ failed_connections | join(', ') if failed_connections else 'None' }}"
+          - ""
+          - "Summary: {{ successful_connections | length }}/{{ worker_nodes | length }} worker nodes accessible via SSH"
+
+    - name: Fail if no worker nodes accessible
+      ansible.builtin.fail:
+        msg: |
+          ❌ Master node cannot SSH to any worker nodes!
+          This indicates SSH key deployment may have failed.
+          Try running: task playbook -- 1_deploy-ssh-key
+      when: successful_connections | length == 0

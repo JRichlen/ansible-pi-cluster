@@ -15,3 +15,7 @@ Thumbs.db
 # Local configuration (if you create host-specific files)
 inventories/hosts.ini.local
 inventories/group_vars/all/secrets.yml
+
+DESIGN.md
+IMPLEMENTATION.md
+REQUIREMENTS.md
