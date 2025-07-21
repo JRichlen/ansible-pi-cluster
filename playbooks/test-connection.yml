@@ -1,0 +1,41 @@
+---
+- name: Test Connection to Ubuntu Servers
+  hosts: ubuntu
+  gather_facts: yes
+  become: no
+  
+  tasks:
+    - name: Test ping connectivity
+      ping:
+        
+    - name: Gather basic system information
+      debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Architecture: {{ ansible_architecture }}
+          Uptime: {{ (ansible_uptime_seconds | int / 86400) | round(1) }} days
+          
+    - name: Check SSH connectivity and user
+      command: whoami
+      register: current_user
+      
+    - name: Display current user
+      debug:
+        msg: "Connected as user: {{ current_user.stdout }}"
+        
+    - name: Test sudo access (optional)
+      command: sudo -n true
+      register: sudo_test
+      ignore_errors: yes
+      failed_when: false
+      changed_when: false
+      
+    - name: Display sudo status
+      debug:
+        msg: |
+          {% if sudo_test.rc == 0 %}
+          Sudo access: Available (passwordless)
+          {% else %}
+          Sudo access: Requires password (secure default)
+          {% endif %}
