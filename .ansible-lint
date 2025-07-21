@@ -1,0 +1,16 @@
+# Ansible Lint Configuration
+---
+# See https://ansible-lint.readthedocs.io/configuring/
+
+# Exclude specific rules for valid use cases
+skip_list:
+  - run-once[task]  # run_once is acceptable for user input prompts
+
+# Profile to use (production is most strict)
+profile: production
+
+# Paths to exclude from linting
+exclude_paths:
+  - .cache/
+  - .github/
+  - __pycache__/

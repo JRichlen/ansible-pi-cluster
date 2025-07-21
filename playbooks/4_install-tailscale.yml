@@ -5,7 +5,8 @@
   become: true
   vars:
     # Auth key handling - prefer environment variable for security
-    tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') | default('') }}"
+    tailscale_auth_key: >-
+      {{ lookup('env', 'TAILSCALE_AUTH_KEY') | default('') }}
 
   tasks:
     - name: Check for Tailscale auth key
@@ -14,13 +15,13 @@
           {% if tailscale_auth_key != '' %}
           ✓ Tailscale auth key provided via environment variable
           {% else %}
-          ⚠ No Tailscale auth key found in TAILSCALE_AUTH_KEY environment variable
+          ⚠ No Tailscale auth key found in TAILSCALE_AUTH_KEY environment
           {% endif %}
 
     - name: Prompt for Tailscale auth key if not provided
       ansible.builtin.pause:
         prompt: |
-          
+
           Please enter your Tailscale auth key.
           You can get one from https://login.tailscale.com/admin/authkeys
           Auth key (input will be hidden)
@@ -28,6 +29,7 @@
       register: auth_key_input
       when: tailscale_auth_key == ''
       run_once: true
+      delegate_to: localhost
       no_log: true
 
     - name: Set auth key from user input
@@ -38,7 +40,9 @@
 
     - name: Validate auth key is provided
       ansible.builtin.fail:
-        msg: "Tailscale auth key is required. Set TAILSCALE_AUTH_KEY environment variable or provide when prompted."
+        msg: >-
+          Tailscale auth key is required. Set TAILSCALE_AUTH_KEY environment
+          variable or provide when prompted.
       when: tailscale_auth_key == ''
 
     - name: Display Tailscale installation start
@@ -92,16 +96,20 @@
           Tailscale Installation Results for {{ inventory_hostname }}
           ═══════════════════════════════════════════════════════════════
 
-          Service Status: {{ 'Active' if tailscale_service_status.status.ActiveState == 'active' else 'Inactive' }}
+          Service Status:
+          {{ 'Active' if tailscale_service_status.status.ActiveState == 'active'
+          else 'Inactive' }}
 
           {% if tailscale_ip_result.rc == 0 %}
           Tailscale IP: {{ tailscale_ip_result.stdout.strip() }}
           {% else %}
-          Tailscale IP: Not available ({{ tailscale_ip_result.stderr | default('Unknown error') }})
+          Tailscale IP: Not available
+          ({{ tailscale_ip_result.stderr | default('Unknown error') }})
           {% endif %}
 
           {% if tailscale_status_raw.rc == 0 and tailscale_status is defined %}
-          Connection Status: {{ tailscale_status.BackendState | default('Unknown') }}
+          Connection Status:
+          {{ tailscale_status.BackendState | default('Unknown') }}
           {% endif %}
 
           {% if tailscale_result is defined and tailscale_result.changed %}
@@ -136,7 +144,10 @@
 
           Host: {{ inventory_hostname }}
           OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-          Tailscale Service: {{ 'Running' if tailscale_service_status.status.ActiveState == 'active' else 'Not Running' }}
+          Tailscale Service:
+          {{ 'Running'
+          if tailscale_service_status.status.ActiveState == 'active'
+          else 'Not Running' }}
 
           {% if tailscale_ip_result.rc == 0 %}
           Tailscale IP: {{ tailscale_ip_result.stdout.strip() }}

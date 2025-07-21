@@ -51,12 +51,13 @@
           SSH_KEYS_WORK={{ 'true' if ssh_key_test.rc == 0 else 'false' }}
           HOST={{ inventory_hostname }}
           ANSIBLE_USER={{ ansible_user }}
-          TEST_TIMESTAMP={{ ansible_date_time.epoch | default('0') }}
+          TEST_TIMESTAMP={{- ansible_date_time.epoch | default('0') }}
         dest: "{{ results_dir }}/{{ inventory_hostname }}.env"
         mode: '0644'
       delegate_to: localhost
 
-    # Phase 4: Summary for unreachable hosts (this won't run if connectivity fails)
+    # Phase 4: Summary for unreachable hosts
+    # (this won't run if connectivity fails)
     - name: Mark unreachable hosts
       ansible.builtin.copy:
         content: |
