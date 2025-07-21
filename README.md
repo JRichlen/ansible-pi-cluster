@@ -1,273 +1,150 @@
-# Ansible Pi Cluster
+# Ansible Pi Cluster Management
 
-Infrastructure automation for Raspberry Pi clusters using Ansible with multiple task runner options.
+A modern, interactive Ansible automation system for managing Raspberry Pi clusters with intelligent SSH authentication and robust error handling.
 
-## Project Structure
+## ✨ Features
 
+- **🎯 Smart Authentication**: Automatically detects SSH key vs password authentication needs
+- **🔇 Clean Output**: Silent connectivity testing with clear, color-coded summaries  
+- **💻 Perfect TTY Handling**: All prompts are visible and interactive, no hanging commands
+- **⚡ Efficient Workflow**: Cached connectivity results, skip unnecessary steps
+- **🔒 Robust Architecture**: Clean separation of playbook logic and user interaction
+
+## 🚀 Quick Start
+
+### Prerequisites
+- [go-task](https://taskfile.dev/) installed
+- Ansible installed
+- SSH access to target hosts
+
+### Run Any Playbook
+```bash
+# The intelligent workflow handles everything automatically:
+task playbook -- <playbook-name>
+
+# Examples:
+task playbook -- 0_test-connectivity    # Test connectivity only
+task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detection
+task playbook -- 2_update-packages      # Update system packages
 ```
-ansible-pi-cluster/
-├── scripts/                  # Utility scripts
-│   ├── run-playbook.sh      #   Ansible playbook execution wrapper
-│   └── README.md            #   Scripts documentation
-├── inventories/             # Ansible inventory files
-│   └── hosts.yml           #   Host definitions
-├── playbooks/              # Ansible playbooks (numbered by execution order)
-│   ├── 1_deploy-ssh-key.yml #   SSH key deployment & system setup
-│   └── 2_update-packages.yml#   System updates & package installation
-├── roles/                  # Ansible roles
-├── Taskfile.yml            # Go-task configuration (main interface)
-└── README.md               # This file
+
+### What You'll Experience
+
+#### All SSH Keys Working ✅
+```
+Testing connectivity to hosts...
+✓ Connectivity test completed
+✓ Reachable hosts: ubuntu-1.local ubuntu-2.local ubuntu-4.local  
+✓ SSH key authentication: ubuntu-1.local ubuntu-2.local ubuntu-4.local
+
+Running playbook: 1_deploy-ssh-key
+[Playbook runs automatically without prompts]
 ```
 
-## Quick Start
+#### Some Hosts Need Passwords ⚠️
+```
+Testing connectivity to hosts...
+✓ Connectivity test completed
+✓ Reachable hosts: ubuntu-1.local ubuntu-2.local ubuntu-4.local
+✓ SSH key authentication: ubuntu-1.local
+⚠ Need password authentication: ubuntu-2.local ubuntu-4.local
 
-### 1. Install Dependencies
+Some hosts require password authentication.
+Do you want to proceed with password authentication? (y/N): 
+```
+
+## 📋 Available Tasks
 
 ```bash
-# Using go-task (recommended)
-task install
-
-# Manual installation
-brew install ansible yamllint ansible-lint sshpass go-task/tap/go-task
-ansible-galaxy collection install community.general --force
-ansible-galaxy collection install ansible.posix --force
+task list                    # Show all available tasks
+task install                 # Install project dependencies  
+task test                    # Test connectivity to all hosts
+task playbook -- <name>     # Run specific playbook with smart workflow
+task all                     # Run all playbooks in sequence
+task clean                   # Clean up temporary files
 ```
 
-### 2. Set Up Your Inventory
+## 🏗️ Architecture
 
-Edit `inventories/hosts.yml` to define your Pi cluster nodes:
+The system uses a three-layer approach:
 
+1. **Connectivity Testing** (Ansible playbook) - Tests network and SSH authentication silently
+2. **Analysis & Decision** (Shell script) - Parses results and determines authentication method  
+3. **User Interaction** (Shell script) - Prompts for passwords only when needed
+
+See [WORKFLOW.md](WORKFLOW.md) for detailed architecture documentation.
+
+## 📁 Project Structure
+
+```
+├── Taskfile.yml              # Task runner configuration
+├── inventories/
+│   └── hosts.yml             # Ansible inventory
+├── playbooks/
+│   ├── 0_test-connectivity.yml    # Silent connectivity testing
+│   ├── 1_deploy-ssh-key.yml      # SSH key deployment
+│   └── 2_update-packages.yml     # System updates
+├── scripts/
+│   ├── run-playbook.sh       # Smart playbook runner with auth detection
+│   ├── task-*.sh            # Individual task implementations
+│   └── simulate-*.sh        # Testing utilities
+└── WORKFLOW.md              # Detailed architecture documentation
+```
+
+## 🔧 Configuration
+
+### Inventory Setup
+Edit `inventories/hosts.yml`:
 ```yaml
 all:
   children:
-    pi_cluster:
+    ubuntu:
       hosts:
-        pi-node-01:
-          ansible_host: 192.168.1.100
-        pi-node-02:
-          ansible_host: 192.168.1.101
-        pi-node-03:
-          ansible_host: 192.168.1.102
+        ubuntu-1.local:
+        ubuntu-2.local:
+        ubuntu-3.local:
+        ubuntu-4.local:
+      vars:
+        ansible_user: jrichlen
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
 ```
 
-### 3. Cluster Setup Workflow
+### SSH Key Setup
+The system automatically detects and uses SSH keys from:
+- `~/.ssh/id_rsa.pub` (default)
+- `~/.ssh/id_ed25519.pub` (fallback)
+- `~/.ssh/id_ecdsa.pub` (fallback)
 
+Generate a new key if needed:
 ```bash
+ssh-keygen -t ed25519 -C "your_email@example.com"
+```
+
+## 🛠️ Troubleshooting
+
+### Connectivity Issues
 ```bash
-# Complete setup workflow (runs all numbered playbooks in order)
-task all                    # Run all playbooks
+# Test connectivity only
+task playbook -- 0_test-connectivity
 
-# Individual playbooks
-task playbook -- 1                    # Deploy SSH keys & configure system access
-task playbook -- deploy-ssh-key       # Same as above, by name
-task playbook -- 2                    # Update packages & install dependencies
-task playbook -- update-packages      # Same as above, by name
-
-# With Ansible options
-task playbook -- 1 --check            # Dry run
-task playbook -- 1 --limit pi-node-01 # Target specific host
-task playbook -- 1 --verbose          # Verbose output
+# Check results manually
+ls -la /tmp/ansible_connectivity_results/
+cat /tmp/ansible_connectivity_results/*.env
 ```
 
-## Task Runner
+### Prompt Visibility Issues
+The system uses `script -q /dev/null` to ensure proper TTY allocation. All prompts should be visible and interactive.
 
-This project uses **Go-task** as the modern, clean task runner with excellent interactive support:
+### SSH Key Authentication
+If SSH keys aren't working, the system will automatically prompt for passwords when needed. No manual configuration required.
 
-```bash
-task                          # Show help and list all available playbooks
-task playbook -- 1           # Run playbook 1 (SSH key deployment)
-task playbook -- deploy-ssh-key # Same playbook by name
-task playbook -- 1 --check   # Dry run
-task playbook -- 1 --limit pi-node-01 # Target specific host
-task list                    # List all discovered playbooks
-task all                     # Run all playbooks in order
-task test                    # Run syntax tests
-task clean                   # Cleanup temporary files
-```
+## 📝 Contributing
 
-**Features:**
-- ✅ **Perfect interactive support** - handles password prompts flawlessly
-- ✅ **Dynamic playbook discovery** - automatically finds all playbooks
-- ✅ **Unified command interface** - single `playbook` command for everything
-- ✅ **Ansible argument passthrough** - supports all ansible-playbook options
-- ✅ **Modern and maintainable** - clean YAML configuration
-```
+1. Follow the architecture principles in [WORKFLOW.md](WORKFLOW.md)
+2. Keep playbook logic separate from user interaction
+3. Ensure all prompts work with TTY allocation
+4. Test with various connectivity scenarios
 
-## Task Runners
+## 📄 License
 
-This project provides **two task runners** optimized for interactive Ansible playbooks:
-
-### 1. 🚀 **Go-task (`task`)** - Recommended
-
-**Modern, clean task runner with excellent interactive support:**
-
-```bash
-task                          # Show help and list all available playbooks
-task playbook -- 1           # Run playbook 1 (SSH key deployment)
-task playbook -- deploy-ssh-key # Same playbook by name
-task playbook -- 1 --check   # Dry run
-task playbook -- 1 --limit pi-node-01 # Target specific host
-task list                    # List all discovered playbooks
-task all                     # Run all playbooks in order
-task test                    # Run syntax tests
-task clean                   # Cleanup temporary files
-```
-
-### 2. 🔧 **Bash Script (`./tasks.sh`)** - Alternative
-
-**Features:**
-**Bash script with traditional playbook discovery and execution:**
-
-```bash
-./tasks.sh                  # Show help and list all available playbooks
-./tasks.sh 1               # Run playbook 1 (SSH key deployment)
-./tasks.sh deploy-ssh-key  # Same playbook by name
-./tasks.sh list           # List all discovered playbooks
-./tasks.sh all            # Run all playbooks in order
-./tasks.sh test           # Run syntax tests
-./tasks.sh clean          # Cleanup temporary files
-```
-
-**Features:**
-- ✅ **Perfect interactive support** - no TTY issues
-- ✅ **Dynamic playbook discovery** - automatically finds all playbooks
-- ✅ **Number and name support** - run by number (1, 2) or name
-- ✅ **Zero configuration** - works out of the box
-
-**Both task runners provide the same functionality - choose based on your preference!**
-
-## Playbooks
-
-### `1_deploy-ssh-key.yml` - SSH Key Setup & System Configuration
-**Comprehensive SSH key deployment with intelligent connection handling:**
-
-- ✅ **Smart Connection Testing**: Tests basic connectivity and SSH key auth
-- ✅ **Fail-Safe Deployment**: Only prompts for password when needed
-- ✅ **SSH Key Management**: Finds and deploys SSH keys automatically  
-- ✅ **System Configuration**: Sets up passwordless sudo
-- ✅ **Final Validation**: Ensures SSH keys work before completing
-- ✅ **Detailed Reporting**: Clear status for each host
-- ✅ **Interactive Prompts**: Works perfectly with task runners (no hanging!)
-
-**Usage:**
-```bash
-task playbook -- 1        # Interactive prompts work flawlessly
-```
-
-### `2_update-packages.yml` - System Updates & Package Installation  
-**System maintenance and dependency installation:**
-
-- Updates all system packages
-- Installs common development tools
-- Configures system services
-
-**Usage:**
-```bash
-./tasks.sh 2              # Update and install packages
-# or
-task 2                    # Alternative
-```
-
-## Network Discovery
-
-**Features:**
-- **Dynamic Network Discovery**: Automatically detects your local network subnet
-- **Multiple Scanning Methods**: 
-  - nmap (detailed, requires sudo) - shows MAC addresses and vendors
-  - ping sweep (basic, no sudo) - shows IP addresses and hostnames
-- **Modular Design**: Separate utilities for different network operations
-- **macOS Optimized**: Uses macOS-specific networking commands
-- **User-Friendly Interface**: Clear output and helpful error messages
-
-## Requirements
-
-- macOS (current networking stack)  
-- Bash shell
-- Ansible
-- Optional: `nmap` for detailed scans
-- Optional: `sshpass` for password authentication
-- Optional: `go-task` for the task alternative
-- Optional: `sudo` privileges for MAC address detection
-
-## Installation
-
-```bash
-# Install all dependencies using the task script
-./tasks.sh install
-
-# Or using go-task
-task install
-
-# Or manually
-brew install ansible nmap yamllint ansible-lint sshpass go-task/tap/go-task
-ansible-galaxy collection install community.general --force
-ansible-galaxy collection install ansible.posix --force
-```
-
-## Configuration
-
-1. **Update Inventory**: Edit `inventories/hosts.yml` with your Pi cluster IPs
-2. **Customize Variables**: Modify playbook variables as needed
-3. **SSH Keys**: Ensure you have SSH keys generated (`ssh-keygen`)
-
-## Example Workflow
-
-```bash
-# 1. Discover your network
-./tasks.sh scan
-
-# 2. Update inventory with discovered IPs
-# 3. Run complete setup
-./tasks.sh all
-
-# 4. Verify everything works
-./tasks.sh test
-```
-
-## Testing & Validation
-
-```bash
-# Consolidated test command (escalating importance)
-./tasks.sh test             # Run all essential tests in order:
-                           #   1. YAML syntax validation
-                           #   2. Ansible syntax validation  
-                           #   3. Ansible lint (best practices)
-
-# Using go-task
-task test                  # Same tests
-```
-
-## Cleanup
-
-```bash
-./tasks.sh clean          # Remove temporary files and caches
-# or
-task clean                # Same cleanup
-```
-
-## Why Not Make?
-
-Traditional `make` has issues with interactive prompts (like SSH password entry) that can cause hanging. Our task runners are specifically designed to handle interactive Ansible playbooks perfectly:
-
-- ✅ **Interactive prompts work flawlessly**
-- ✅ **No TTY/stdin redirection issues**
-- ✅ **Better error handling**
-- ✅ **Modern, readable syntax**
-
-## Troubleshooting
-
-- **SSH Key Issues**: The `deploy-ssh-key.yml` playbook provides detailed troubleshooting
-- **Interactive Prompts**: Use `./tasks.sh` for best interactive support
-- **Network Discovery**: See `scripts/README.md` for detailed network discovery help
-- **Ansible Issues**: Check syntax with `./tasks.sh test`
-
-## Next Steps
-
-1. **Customize Playbooks**: Modify playbooks for your specific requirements
-2. **Add Roles**: Create reusable roles in `roles/` directory  
-3. **Extend Automation**: Add more playbooks - they'll be discovered automatically!
-
-## Documentation
-
-- [Network Discovery Scripts](scripts/README.md) - Detailed network discovery documentation
-- [Ansible Best Practices](https://docs.ansible.com/ansible/latest/user_guide/playbooks_best_practices.html) - Official Ansible documentation
+MIT License - see LICENSE file for details.
