@@ -18,6 +18,8 @@ A modern, interactive Ansible automation system for managing Raspberry Pi cluste
 - Ansible installed
 - SSH access to target hosts
 
+**Note**: Run `task install` to automatically install all required Ansible collections including Tailscale support.
+
 ### Run Any Playbook
 ```bash
 # The intelligent workflow handles everything automatically:
@@ -28,6 +30,8 @@ task playbook -- 0_test-connectivity    # Test connectivity only
 task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detection
 task playbook -- 2_test-master-connectivity  # Test master node SSH to workers
 task playbook -- 3_update-packages      # Update system packages
+task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
+task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
 ```
 
 ### What You'll Experience
@@ -116,6 +120,20 @@ The system automatically detects and uses SSH keys from:
 - `~/.ssh/id_rsa.pub` (default)
 - `~/.ssh/id_ed25519.pub` (fallback)
 - `~/.ssh/id_ecdsa.pub` (fallback)
+
+### Tailscale Configuration
+To use the Tailscale VPN setup:
+
+1. **Install Dependencies**: Run `task install` (includes Tailscale collection)
+2. **Get Auth Key**: Visit [Tailscale Admin Console](https://login.tailscale.com/admin/authkeys) to generate an auth key
+3. **Set Environment Variable**: 
+   ```bash
+   export TAILSCALE_AUTH_KEY="your-auth-key-here"
+   task playbook -- 4_install-tailscale
+   ```
+4. **Alternative**: If no environment variable is set, the playbook will prompt for the auth key securely
+
+**Security Note**: Auth keys are handled securely and never logged in plain text.
 
 Generate a new key if needed:
 ```bash

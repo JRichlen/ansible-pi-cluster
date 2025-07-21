@@ -16,6 +16,6 @@ Thumbs.db
 inventories/hosts.ini.local
 inventories/group_vars/all/secrets.yml
 
-DESIGN.md
-IMPLEMENTATION.md
-REQUIREMENTS.md
+DESIGN*.md
+IMPLEMENTATION*.md
+REQUIREMENTS*.md

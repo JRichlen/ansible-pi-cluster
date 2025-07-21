@@ -1,0 +1,146 @@
+---
+- name: Install and Configure Tailscale VPN
+  hosts: ubuntu
+  gather_facts: true
+  become: true
+  vars:
+    # Auth key handling - prefer environment variable for security
+    tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') | default('') }}"
+
+  tasks:
+    - name: Check for Tailscale auth key
+      ansible.builtin.debug:
+        msg: |
+          {% if tailscale_auth_key != '' %}
+          ✓ Tailscale auth key provided via environment variable
+          {% else %}
+          ⚠ No Tailscale auth key found in TAILSCALE_AUTH_KEY environment variable
+          {% endif %}
+
+    - name: Prompt for Tailscale auth key if not provided
+      ansible.builtin.pause:
+        prompt: |
+          
+          Please enter your Tailscale auth key.
+          You can get one from https://login.tailscale.com/admin/authkeys
+          Auth key (input will be hidden)
+        echo: false
+      register: auth_key_input
+      when: tailscale_auth_key == ''
+      run_once: true
+      no_log: true
+
+    - name: Set auth key from user input
+      ansible.builtin.set_fact:
+        tailscale_auth_key: "{{ auth_key_input.user_input | default('') }}"
+      when: tailscale_auth_key == ''
+      no_log: true
+
+    - name: Validate auth key is provided
+      ansible.builtin.fail:
+        msg: "Tailscale auth key is required. Set TAILSCALE_AUTH_KEY environment variable or provide when prompted."
+      when: tailscale_auth_key == ''
+
+    - name: Display Tailscale installation start
+      ansible.builtin.debug:
+        msg: |
+          Starting Tailscale installation on {{ inventory_hostname }}
+          Release stability: stable
+
+    - name: Install and configure Tailscale
+      ansible.builtin.include_role:
+        name: artis3n.tailscale.machine
+      vars:
+        state: latest
+        tailscale_authkey: "{{ tailscale_auth_key }}"
+        release_stability: stable
+        verbose: false
+        insecurely_log_authkey: false
+        tailscale_up_timeout: "120"
+      register: tailscale_result
+
+    - name: Check Tailscale service status
+      ansible.builtin.systemd:
+        name: tailscaled
+      register: tailscale_service_status
+      failed_when: false
+
+    - name: Get Tailscale status
+      ansible.builtin.command:
+        cmd: tailscale status --json
+      register: tailscale_status_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse Tailscale status
+      ansible.builtin.set_fact:
+        tailscale_status: "{{ tailscale_status_raw.stdout | from_json }}"
+      when: tailscale_status_raw.rc == 0
+      failed_when: false
+
+    - name: Get Tailscale IP address
+      ansible.builtin.command:
+        cmd: tailscale ip -4
+      register: tailscale_ip_result
+      failed_when: false
+      changed_when: false
+
+    - name: Display Tailscale installation results
+      ansible.builtin.debug:
+        msg: |
+          ═══════════════════════════════════════════════════════════════
+          Tailscale Installation Results for {{ inventory_hostname }}
+          ═══════════════════════════════════════════════════════════════
+
+          Service Status: {{ 'Active' if tailscale_service_status.status.ActiveState == 'active' else 'Inactive' }}
+
+          {% if tailscale_ip_result.rc == 0 %}
+          Tailscale IP: {{ tailscale_ip_result.stdout.strip() }}
+          {% else %}
+          Tailscale IP: Not available ({{ tailscale_ip_result.stderr | default('Unknown error') }})
+          {% endif %}
+
+          {% if tailscale_status_raw.rc == 0 and tailscale_status is defined %}
+          Connection Status: {{ tailscale_status.BackendState | default('Unknown') }}
+          {% endif %}
+
+          {% if tailscale_result is defined and tailscale_result.changed %}
+          ✓ Tailscale was successfully installed and configured
+          {% else %}
+          ℹ Tailscale was already installed and configured
+          {% endif %}
+
+    - name: Store Tailscale IP for connectivity testing
+      ansible.builtin.set_fact:
+        tailscale_ip: "{{ tailscale_ip_result.stdout.strip() }}"
+      when: tailscale_ip_result.rc == 0
+
+    - name: Test Tailscale connectivity (ping other nodes)
+      ansible.builtin.command:
+        cmd: ping -c 1 -W 3 {{ hostvars[item]['tailscale_ip'] }}
+      loop: "{{ groups['ubuntu'] }}"
+      when:
+        - item != inventory_hostname
+        - hostvars[item]['tailscale_ip'] is defined
+        - tailscale_ip_result.rc == 0
+      register: ping_results
+      failed_when: false
+      changed_when: false
+
+    - name: Display final status
+      ansible.builtin.debug:
+        msg: |
+          ═══════════════════════════════════════════════════════════════
+          Final Status Summary for {{ inventory_hostname }}
+          ═══════════════════════════════════════════════════════════════
+
+          Host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Tailscale Service: {{ 'Running' if tailscale_service_status.status.ActiveState == 'active' else 'Not Running' }}
+
+          {% if tailscale_ip_result.rc == 0 %}
+          Tailscale IP: {{ tailscale_ip_result.stdout.strip() }}
+          Status: ✓ Tailscale is operational and can reach other nodes
+          {% else %}
+          Status: ⚠ Tailscale may not be properly configured
+          {% endif %}
