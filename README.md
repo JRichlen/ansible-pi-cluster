@@ -85,7 +85,7 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed architecture documentation.
 │   ├── 1_deploy-ssh-key.yml      # SSH key deployment
 │   └── 2_update-packages.yml     # System updates
 ├── scripts/
-│   ├── run-playbook.sh       # Smart playbook runner with auth detection
+│   ├── task-playbook.sh      # Consolidated intelligent playbook runner
 │   ├── task-*.sh            # Individual task implementations
 │   └── simulate-*.sh        # Testing utilities
 └── WORKFLOW.md              # Detailed architecture documentation

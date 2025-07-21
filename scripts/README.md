@@ -4,10 +4,11 @@ This directory contains all shell scripts that implement the intelligent Ansible
 
 ## 🔧 Core Scripts
 
-### `run-playbook.sh` - Intelligent Playbook Runner
-The heart of the project's intelligent workflow system.
+### `task-playbook.sh` - Intelligent Task Playbook Runner
+The consolidated heart of the project's intelligent workflow system that combines user-friendly task interface with smart execution.
 
 **Key Features:**
+- **Smart Playbook Resolution**: Handles numbers (1), names (deploy-ssh-key), or full names (1_deploy-ssh-key)
 - **Smart Authentication Detection**: Tests SSH keys vs password needs automatically
 - **Silent Connectivity Testing**: Runs connectivity tests without terminal pollution
 - **Clean User Interface**: Color-coded summaries and minimal prompts
@@ -15,10 +16,11 @@ The heart of the project's intelligent workflow system.
 - **Graceful Error Handling**: Handles unreachable hosts and failed connections elegantly
 
 **Workflow:**
-1. Runs `0_test-connectivity.yml` silently
-2. Analyzes results and categorizes hosts
-3. Prompts for passwords only if needed
-4. Executes target playbook with proper authentication
+1. Resolves playbook name from various input formats
+2. Runs `0_test-connectivity.yml` silently (except for connectivity playbook itself)
+3. Analyzes results and categorizes hosts
+4. Prompts for passwords only if needed
+5. Executes target playbook with proper authentication
 
 ## 📋 Task Implementation Scripts
 
@@ -31,14 +33,14 @@ These scripts implement each task defined in `Taskfile.yml`:
 | `task-test.sh` | Run connectivity tests | No |
 | `task-list.sh` | List all available tasks and playbooks | No |
 | `task-clean.sh` | Clean up temporary files | No |
-| `task-playbook.sh` | Run specific playbook (wrapper for run-playbook.sh) | Yes |
+| `task-playbook.sh` | Consolidated intelligent playbook runner | Yes |
 | `task-all.sh` | Run all playbooks in sequence | Yes |
 
 ## 🏗️ Architecture Principles
 
 ### Separation of Concerns
 - **Task Scripts**: Handle argument parsing and validation
-- **Core Runner**: Implements intelligent workflow logic
+- **Core Runner**: `task-playbook.sh` implements intelligent workflow logic with user-friendly interface
 - **Playbooks**: Handle all Ansible automation logic
 
 ### User Experience
@@ -91,12 +93,15 @@ All scripts follow consistent patterns:
 
 ### Testing Scripts
 ```bash
-# Test individual components
-./scripts/run-playbook.sh 0_test-connectivity
-./scripts/task-list.sh
+# Test connectivity
+./scripts/task-playbook.sh 0
+
+# Test individual playbooks
+./scripts/task-playbook.sh 1
+./scripts/task-playbook.sh deploy-ssh-key
 
 # Test full workflow
-task playbook -- 1_deploy-ssh-key
+task playbook -- 1 --check
 task all
 ```
 
@@ -124,19 +129,21 @@ This ensures:
 ### Usage
 
 ```bash
-# Interactive mode - shows available playbooks and prompts for selection
-./scripts/run-playbook.sh
+# Show help and available playbooks
+task playbook
 
 # Direct execution by number
-./scripts/run-playbook.sh 1
+task playbook -- 1
 
-# Direct execution by name
-./scripts/run-playbook.sh deploy-ssh-key
+# Direct execution by name  
+task playbook -- deploy-ssh-key
 
-# With additional Ansible options (when called via task runner)
+# Direct execution by full name
+task playbook -- 1_deploy-ssh-key
+
+# With additional Ansible options
 task playbook -- 1 --check                    # Dry run
 task playbook -- 1 --limit pi-node-01         # Target specific host
-task playbook -- deploy-ssh-key --verbose     # Verbose output
 ```
 
 ### Playbook Discovery Logic

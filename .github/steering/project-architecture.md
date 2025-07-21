@@ -40,7 +40,7 @@ ansible-pi-cluster/
 - [ ] Follow existing error handling patterns
 
 ### Scripts Directory
-- **Core Script**: `run-playbook.sh` - intelligent workflow heart
+- **Core Script**: `task-playbook.sh` - intelligent workflow heart with user-friendly interface
 - **Task Scripts**: `task-*.sh` - implement Taskfile.yml tasks
 - **Integration**: All scripts must work with task runner system
 
@@ -71,7 +71,7 @@ ansible-pi-cluster/
 
 ### Workflow Integration
 ```
-Taskfile.yml → task-*.sh → run-playbook.sh → connectivity test → analysis → execution
+Taskfile.yml → task-*.sh → task-playbook.sh → connectivity test → analysis → execution
 ```
 
 ## 📝 Development Guidelines
@@ -114,7 +114,7 @@ Taskfile.yml → task-*.sh → run-playbook.sh → connectivity test → analysi
 ### Task Execution Flow
 1. **User Command**: `task <command>`
 2. **Script Wrapper**: `task-*.sh` handles arguments
-3. **Intelligent Runner**: `run-playbook.sh` manages workflow
+3. **Intelligent Runner**: `task-playbook.sh` manages workflow with smart resolution
 4. **Connectivity Test**: Silent testing with result analysis
 5. **Authentication Decision**: Smart prompting based on test results
 6. **Playbook Execution**: With appropriate authentication method

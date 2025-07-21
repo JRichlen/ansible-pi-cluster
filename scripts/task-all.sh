@@ -12,7 +12,7 @@ for playbook in "$PLAYBOOKS_DIR"/[0-9]_*.yml; do
     number=$(basename "$playbook" | cut -d'_' -f1)
     echo ""
     echo "📋 Running playbook $number..."
-    ./scripts/run-playbook.sh "$number"
+    ./scripts/task-playbook.sh "$number"
   fi
 done
 

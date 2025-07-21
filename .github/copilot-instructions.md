@@ -104,7 +104,7 @@ done
 ### Project Structure Rules
 - **Numbered Playbooks**: Maintain execution order with number prefixes
 - **Task Scripts**: Follow `task-*.sh` naming convention
-- **Intelligent Runner**: Preserve `run-playbook.sh` as workflow heart
+- **Intelligent Runner**: Preserve `task-playbook.sh` as consolidated workflow heart
 - **Task Integration**: All new functionality must integrate with `Taskfile.yml`
 
 ### Code Quality Standards
