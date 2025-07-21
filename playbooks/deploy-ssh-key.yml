@@ -1,0 +1,114 @@
+---
+- name: Deploy SSH Key to Ubuntu Hosts
+  hosts: ubuntu
+  gather_facts: yes
+  vars:
+    # Path to your local SSH public key
+    ssh_public_key_path: "{{ ansible_env.HOME }}/.ssh/id_rsa.pub"
+    
+    # Alternative key paths to try if the default doesn't exist
+    alternative_key_paths:
+      - "{{ ansible_env.HOME }}/.ssh/id_ed25519.pub"
+      - "{{ ansible_env.HOME }}/.ssh/id_ecdsa.pub"
+  
+  tasks:
+    - name: Check if default SSH public key exists
+      local_action:
+        module: stat
+        path: "{{ ssh_public_key_path }}"
+      register: default_key_stat
+      become: no
+      
+    - name: Check alternative SSH public keys
+      local_action:
+        module: stat
+        path: "{{ item }}"
+      register: alt_key_stats
+      loop: "{{ alternative_key_paths }}"
+      become: no
+      when: not default_key_stat.stat.exists
+      
+    - name: Determine which SSH key to use
+      set_fact:
+        ssh_key_to_deploy: >-
+          {% if default_key_stat.stat.exists %}
+          {{ ssh_public_key_path }}
+          {% else %}
+          {{ alt_key_stats.results
+             | default([])
+             | selectattr('stat.exists')
+             | map(attribute='item')
+             | first
+             | default('') }}
+          {% endif %}
+    
+    - name: Fail if no SSH public key found
+      fail:
+        msg: |
+          No SSH public key found. Please generate one with:
+          ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+          or
+          ssh-keygen -t ed25519 -C "your_email@example.com"
+      when: ssh_key_to_deploy == ""
+      
+    - name: Display which SSH key will be deployed
+      debug:
+        msg: "Deploying SSH key: {{ ssh_key_to_deploy }}"
+        
+    - name: Read SSH public key content
+      local_action:
+        module: slurp
+        src: "{{ ssh_key_to_deploy }}"
+      register: ssh_key_content
+      become: no
+      
+    - name: Ensure ~/.ssh directory exists
+      file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        
+    - name: Deploy SSH public key
+      authorized_key:
+        user: "{{ ansible_user }}"
+        state: present
+        key: "{{ ssh_key_content.content | b64decode | trim }}"
+        comment: "Deployed by Ansible from {{ inventory_hostname_short }}"
+        
+    - name: Test SSH key authentication
+      local_action:
+        module: command
+        cmd: ssh -o BatchMode=yes -o ConnectTimeout=10 {{ ansible_user }}@{{ inventory_hostname }} echo "SSH key authentication successful"
+      register: ssh_test
+      failed_when: false
+      become: no
+      changed_when: false
+      
+    - name: Display SSH authentication test results
+      debug:
+        msg: |
+          {% if ssh_test.rc == 0 %}
+          ✅ SSH key authentication successful for {{ inventory_hostname }}
+          {% else %}
+          ❌ SSH key authentication failed for {{ inventory_hostname }}
+          You may need to run this playbook again or check your SSH configuration.
+          {% endif %}
+          
+    - name: Gather system information
+      debug:
+        msg: |
+          SSH Key Deployed to: {{ inventory_hostname }}
+          User: {{ ansible_user }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          SSH Key: {{ ssh_key_to_deploy | basename }}
+
+    - name: Configure passwordless sudo for ansible user
+      become: yes
+      copy:
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: '0440'

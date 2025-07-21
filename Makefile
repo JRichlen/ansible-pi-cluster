@@ -30,19 +30,6 @@ ping-sweep:
 help:
 	./scripts/network-discovery help
 
-# Ansible Commands
-ansible-test:
-	ansible-playbook -i inventories/hosts.ini playbooks/test-connection.yml --ask-pass
-
-ansible-ping:
-	ansible -i inventories/hosts.ini ubuntu -m ping --ask-pass
-
-ansible-update:
-	ansible-playbook -i inventories/hosts.ini playbooks/update-packages.yml --ask-pass --ask-become-pass
-
-ansible-all:
-	ansible-playbook -i inventories/hosts.ini playbooks/update-packages.yml --ask-pass --ask-become-pass
-
 # Testing Commands
 test-syntax:
 	@echo "Running syntax validation..."
@@ -60,4 +47,15 @@ test-all:
 	@echo "Running all tests..."
 	make test-syntax
 	make test-yaml
-	make test-lint
+ 
+# Playbook commands
+PLAYBOOKS := $(patsubst %.yml,%, $(notdir $(wildcard playbooks/*.yml)))
+
+.PHONY: $(PLAYBOOKS) ansible-all
+
+$(PLAYBOOKS):
+	@echo "Running playbook $@..."
+	./run-playbook.sh $@
+
+ansible-all: $(PLAYBOOKS)
+	@echo "✔ All playbooks completed"
