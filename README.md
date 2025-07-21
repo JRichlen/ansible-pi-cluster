@@ -1,98 +1,176 @@
 # Ansible Pi Cluster
 
-Infrastructure automation for Raspberry Pi clusters using Ansible.
+Infrastructure automation for Raspberry Pi clusters using Ansible with multiple task runner options.
 
 ## Project Structure
 
 ```
 ansible-pi-cluster/
-├── scripts/                  # All network discovery tools
-│   ├── network-discovery     #   Main network discovery command
-│   ├── README.md            #   Detailed documentation
-│   └── utils/               #   Core utility scripts
-│       ├── discover_subnet.sh  #     Dynamic subnet detection
-│       ├── scan_network.sh     #     nmap-based scanning
-│       └── simple_scan.sh      #     ping-based scanning
+├── scripts/                  # Utility scripts
+│   ├── run-playbook.sh      #   Ansible playbook execution wrapper
+│   └── README.md            #   Scripts documentation
 ├── inventories/             # Ansible inventory files
-│   └── hosts.ini           #   Host definitions
-├── playbooks/              # Ansible playbooks
+│   └── hosts.yml           #   Host definitions
+├── playbooks/              # Ansible playbooks (numbered by execution order)
+│   ├── 1_deploy-ssh-key.yml #   SSH key deployment & system setup
+│   └── 2_update-packages.yml#   System updates & package installation
 ├── roles/                  # Ansible roles
-├── Makefile               # Build and utility commands
-└── README.md              # This file
+├── Taskfile.yml            # Go-task configuration (main interface)
+└── README.md               # This file
 ```
 
 ## Quick Start
 
-### 1. Network Discovery
-
-Find devices on your local network:
+### 1. Install Dependencies
 
 ```bash
-# Using make commands (recommended)
-make scan                     # Basic network scan
-make scan-detailed            # Detailed scan with MAC addresses (requires sudo)
-make subnet                   # Show detected subnet only
-make help                     # Show network discovery help
+# Using go-task (recommended)
+task install
 
-# Using the script directly
-./scripts/network-discovery scan
-./scripts/network-discovery subnet
-./scripts/network-discovery help
+# Manual installation
+brew install ansible yamllint ansible-lint sshpass go-task/tap/go-task
+ansible-galaxy collection install community.general --force
+ansible-galaxy collection install ansible.posix --force
 ```
 
-### 2. Advanced Network Commands
+### 2. Set Up Your Inventory
+
+Edit `inventories/hosts.yml` to define your Pi cluster nodes:
+
+```yaml
+all:
+  children:
+    pi_cluster:
+      hosts:
+        pi-node-01:
+          ansible_host: 192.168.1.100
+        pi-node-02:
+          ansible_host: 192.168.1.101
+        pi-node-03:
+          ansible_host: 192.168.1.102
+```
+
+### 3. Cluster Setup Workflow
 
 ```bash
-# Scan specific subnet with nmap
-make nmap SUBNET=192.168.1.0/24
+```bash
+# Complete setup workflow (runs all numbered playbooks in order)
+task all                    # Run all playbooks
 
-# Simple ping sweep of specific subnet  
-make ping-sweep SUBNET=192.168.1.0/24
+# Individual playbooks
+task playbook -- 1                    # Deploy SSH keys & configure system access
+task playbook -- deploy-ssh-key       # Same as above, by name
+task playbook -- 2                    # Update packages & install dependencies
+task playbook -- update-packages      # Same as above, by name
 
-# Or use the script directly
-sudo ./scripts/network-discovery nmap 192.168.1.0/24
-./scripts/network-discovery ping 192.168.1.0/24
+# With Ansible options
+task playbook -- 1 --check            # Dry run
+task playbook -- 1 --limit pi-node-01 # Target specific host
+task playbook -- 1 --verbose          # Verbose output
 ```
 
-### 3. Ansible Commands
+## Task Runner
+
+This project uses **Go-task** as the modern, clean task runner with excellent interactive support:
 
 ```bash
-make ansible-ping            # Test connectivity to all hosts
-make ansible-update          # Run update playbook
+task                          # Show help and list all available playbooks
+task playbook -- 1           # Run playbook 1 (SSH key deployment)
+task playbook -- deploy-ssh-key # Same playbook by name
+task playbook -- 1 --check   # Dry run
+task playbook -- 1 --limit pi-node-01 # Target specific host
+task list                    # List all discovered playbooks
+task all                     # Run all playbooks in order
+task test                    # Run syntax tests
+task clean                   # Cleanup temporary files
 ```
 
-### 2. Manual Network Scanning
+**Features:**
+- ✅ **Perfect interactive support** - handles password prompts flawlessly
+- ✅ **Dynamic playbook discovery** - automatically finds all playbooks
+- ✅ **Unified command interface** - single `playbook` command for everything
+- ✅ **Ansible argument passthrough** - supports all ansible-playbook options
+- ✅ **Modern and maintainable** - clean YAML configuration
+```
 
-For more control, use the scripts directly:
+## Task Runners
+
+This project provides **two task runners** optimized for interactive Ansible playbooks:
+
+### 1. 🚀 **Go-task (`task`)** - Recommended
+
+**Modern, clean task runner with excellent interactive support:**
 
 ```bash
-# Change to scripts directory
-cd scripts
-
-# Run main scanning script
-./find_pis.sh
-
-# Or with sudo for MAC addresses
-sudo ./find_pis.sh
+task                          # Show help and list all available playbooks
+task playbook -- 1           # Run playbook 1 (SSH key deployment)
+task playbook -- deploy-ssh-key # Same playbook by name
+task playbook -- 1 --check   # Dry run
+task playbook -- 1 --limit pi-node-01 # Target specific host
+task list                    # List all discovered playbooks
+task all                     # Run all playbooks in order
+task test                    # Run syntax tests
+task clean                   # Cleanup temporary files
 ```
 
-### 3. Utility Scripts
+### 2. 🔧 **Bash Script (`./tasks.sh`)** - Alternative
 
-Access individual utilities:
+**Features:**
+**Bash script with traditional playbook discovery and execution:**
 
 ```bash
-# Discover local subnet
-./network-discovery subnet
-
-# Scan specific subnet with nmap
-sudo ./network-discovery nmap 192.168.1.0/24
-
-# Simple ping sweep
-./network-discovery ping 192.168.1.0/24
+./tasks.sh                  # Show help and list all available playbooks
+./tasks.sh 1               # Run playbook 1 (SSH key deployment)
+./tasks.sh deploy-ssh-key  # Same playbook by name
+./tasks.sh list           # List all discovered playbooks
+./tasks.sh all            # Run all playbooks in order
+./tasks.sh test           # Run syntax tests
+./tasks.sh clean          # Cleanup temporary files
 ```
 
-## Features
+**Features:**
+- ✅ **Perfect interactive support** - no TTY issues
+- ✅ **Dynamic playbook discovery** - automatically finds all playbooks
+- ✅ **Number and name support** - run by number (1, 2) or name
+- ✅ **Zero configuration** - works out of the box
 
+**Both task runners provide the same functionality - choose based on your preference!**
+
+## Playbooks
+
+### `1_deploy-ssh-key.yml` - SSH Key Setup & System Configuration
+**Comprehensive SSH key deployment with intelligent connection handling:**
+
+- ✅ **Smart Connection Testing**: Tests basic connectivity and SSH key auth
+- ✅ **Fail-Safe Deployment**: Only prompts for password when needed
+- ✅ **SSH Key Management**: Finds and deploys SSH keys automatically  
+- ✅ **System Configuration**: Sets up passwordless sudo
+- ✅ **Final Validation**: Ensures SSH keys work before completing
+- ✅ **Detailed Reporting**: Clear status for each host
+- ✅ **Interactive Prompts**: Works perfectly with task runners (no hanging!)
+
+**Usage:**
+```bash
+task playbook -- 1        # Interactive prompts work flawlessly
+```
+
+### `2_update-packages.yml` - System Updates & Package Installation  
+**System maintenance and dependency installation:**
+
+- Updates all system packages
+- Installs common development tools
+- Configures system services
+
+**Usage:**
+```bash
+./tasks.sh 2              # Update and install packages
+# or
+task 2                    # Alternative
+```
+
+## Network Discovery
+
+**Features:**
 - **Dynamic Network Discovery**: Automatically detects your local network subnet
 - **Multiple Scanning Methods**: 
   - nmap (detailed, requires sudo) - shows MAC addresses and vendors
@@ -103,36 +181,93 @@ sudo ./network-discovery nmap 192.168.1.0/24
 
 ## Requirements
 
-- macOS (current networking stack)
+- macOS (current networking stack)  
 - Bash shell
-- Optional: `nmap` for detailed scans (`brew install nmap`)
+- Ansible
+- Optional: `nmap` for detailed scans
+- Optional: `sshpass` for password authentication
+- Optional: `go-task` for the task alternative
 - Optional: `sudo` privileges for MAC address detection
 
-## Example Output
+## Installation
 
+```bash
+# Install all dependencies using the task script
+./tasks.sh install
+
+# Or using go-task
+task install
+
+# Or manually
+brew install ansible nmap yamllint ansible-lint sshpass go-task/tap/go-task
+ansible-galaxy collection install community.general --force
+ansible-galaxy collection install ansible.posix --force
 ```
-$ ./network-discovery scan
 
-Discovering local subnet...
-Detected subnet: 192.168.50.0/24
+## Configuration
 
-Using ping sweep method (no MAC addresses)...
-Format: IP Address       Status    Hostname
-==========================================
-192.168.50.1     UP        GT-AC5300-AA60
-192.168.50.121   UP        Jordans-MBP
-192.168.50.195   UP        homeassistant
-==========================================
-Ping sweep complete.
+1. **Update Inventory**: Edit `inventories/hosts.yml` with your Pi cluster IPs
+2. **Customize Variables**: Modify playbook variables as needed
+3. **SSH Keys**: Ensure you have SSH keys generated (`ssh-keygen`)
+
+## Example Workflow
+
+```bash
+# 1. Discover your network
+./tasks.sh scan
+
+# 2. Update inventory with discovered IPs
+# 3. Run complete setup
+./tasks.sh all
+
+# 4. Verify everything works
+./tasks.sh test
 ```
+
+## Testing & Validation
+
+```bash
+# Consolidated test command (escalating importance)
+./tasks.sh test             # Run all essential tests in order:
+                           #   1. YAML syntax validation
+                           #   2. Ansible syntax validation  
+                           #   3. Ansible lint (best practices)
+
+# Using go-task
+task test                  # Same tests
+```
+
+## Cleanup
+
+```bash
+./tasks.sh clean          # Remove temporary files and caches
+# or
+task clean                # Same cleanup
+```
+
+## Why Not Make?
+
+Traditional `make` has issues with interactive prompts (like SSH password entry) that can cause hanging. Our task runners are specifically designed to handle interactive Ansible playbooks perfectly:
+
+- ✅ **Interactive prompts work flawlessly**
+- ✅ **No TTY/stdin redirection issues**
+- ✅ **Better error handling**
+- ✅ **Modern, readable syntax**
+
+## Troubleshooting
+
+- **SSH Key Issues**: The `deploy-ssh-key.yml` playbook provides detailed troubleshooting
+- **Interactive Prompts**: Use `./tasks.sh` for best interactive support
+- **Network Discovery**: See `scripts/README.md` for detailed network discovery help
+- **Ansible Issues**: Check syntax with `./tasks.sh test`
 
 ## Next Steps
 
-1. **Update Inventory**: Use discovered IPs to update `inventories/hosts.ini`
-2. **Create Playbooks**: Add your automation playbooks to `playbooks/`
-3. **Define Roles**: Create reusable roles in `roles/`
+1. **Customize Playbooks**: Modify playbooks for your specific requirements
+2. **Add Roles**: Create reusable roles in `roles/` directory  
+3. **Extend Automation**: Add more playbooks - they'll be discovered automatically!
 
 ## Documentation
 
-- [Network Discovery Scripts](scripts/README.md) - Detailed documentation for all network discovery tools
+- [Network Discovery Scripts](scripts/README.md) - Detailed network discovery documentation
 - [Ansible Best Practices](https://docs.ansible.com/ansible/latest/user_guide/playbooks_best_practices.html) - Official Ansible documentation

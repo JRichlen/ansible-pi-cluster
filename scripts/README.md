@@ -1,130 +1,87 @@
-# Network Discovery Scripts
+# Scripts Directory
 
-This directory contains network discovery tools for finding devices on your local network.
+This directory contains utility scripts for the Ansible Pi Cluster project.
 
-## Quick Start
+## run-playbook.sh
 
-From the project root directory:
+**Purpose**: A wrapper script for running Ansible playbooks with intelligent playbook discovery and execution handling.
+
+**Location**: `scripts/run-playbook.sh`
+
+### Features
+
+- **Dynamic Playbook Discovery**: Automatically finds playbooks by number (e.g., `1`, `2`) or name (e.g., `deploy-ssh-key`, `update-packages`)
+- **Interactive Mode**: When run without arguments, displays available playbooks and prompts for selection
+- **Specialized Handling**: Different execution modes for different playbook types:
+  - SSH key deployment playbooks: Interactive password prompts, disabled host key checking
+  - Test connection playbooks: No credential requirements
+  - Standard playbooks: SSH key authentication with sudo
+
+### Usage
 
 ```bash
-# Basic network scan
-make scan
+# Interactive mode - shows available playbooks and prompts for selection
+./scripts/run-playbook.sh
 
-# Detailed scan with MAC addresses (requires sudo)
-make scan-detailed
+# Direct execution by number
+./scripts/run-playbook.sh 1
 
-# Just discover the subnet
-make subnet
+# Direct execution by name
+./scripts/run-playbook.sh deploy-ssh-key
 
-# Scan specific subnet
-make nmap SUBNET=192.168.1.0/24
-make ping-sweep SUBNET=192.168.1.0/24
+# With additional Ansible options (when called via task runner)
+task playbook -- 1 --check                    # Dry run
+task playbook -- 1 --limit pi-node-01         # Target specific host
+task playbook -- deploy-ssh-key --verbose     # Verbose output
 ```
 
-## Directory Structure
+### Playbook Discovery Logic
 
-```
-scripts/
-├── network-discovery        # Main network discovery command
-├── README.md               # This file
-└── utils/                  # Core utility scripts
-    ├── discover_subnet.sh     # Subnet detection for macOS
-    ├── scan_network.sh        # nmap-based detailed scanning
-    └── simple_scan.sh         # ping-based basic scanning
-```
+1. **Number Input**: Looks for files matching pattern `{number}_*.yml` (e.g., `1_deploy-ssh-key.yml`)
+2. **Name Input**: 
+   - First tries `*_{name}.yml` pattern (e.g., `1_deploy-ssh-key.yml` for input `deploy-ssh-key`)
+   - Falls back to exact filename match `{name}.yml`
 
-## Scripts Overview
+### Execution Modes
 
-### `network-discovery` (Main Command)
-The primary interface for all network discovery operations:
+#### SSH Key Deployment (`*deploy-ssh-key*`)
+- Uses interactive mode (`exec < /dev/tty`)
+- Disables host key checking (`ANSIBLE_HOST_KEY_CHECKING=False`)
+- Uses default stdout callback for better password prompt visibility
+- Enables sudo with verbose output
 
-**Commands:**
-- `scan` / `find` - Auto-discover subnet and scan for devices
-- `subnet` - Show detected local subnet
-- `nmap <subnet>` - Detailed nmap scan of specific subnet
-- `ping <subnet>` - Simple ping sweep of specific subnet  
-- `help` - Show usage information
+#### Test Connection (`*test-connection*`)
+- Minimal execution, no sudo or credentials required
+- Used for connectivity testing
 
-**Examples:**
-```bash
-./network-discovery scan                    # Auto-scan local network
-sudo ./network-discovery scan               # Detailed scan with MAC info
-./network-discovery subnet                  # Show subnet only
-sudo ./network-discovery nmap 192.168.1.0/24  # Scan specific subnet
-./network-discovery ping 192.168.1.0/24     # Ping sweep specific subnet
-```
+#### Standard Playbooks (all others)
+- Uses SSH key authentication
+- Enables sudo (assumes passwordless sudo is configured)
+- Verbose output enabled
 
-### 2. `utils/discover_subnet.sh`
-Automatically discovers your local network subnet on macOS by:
-- Finding the default network interface
-- Extracting IP address and netmask
-- Converting to CIDR notation (e.g., 192.168.1.0/24)
+### Environment Variables
 
-**Direct Usage:**
-```bash
-cd scripts/utils
-./discover_subnet.sh
-# Output: 192.168.50.0/24
-```
+The script sets the following Ansible environment variables when needed:
 
-### 3. `utils/scan_network.sh`
-Performs detailed network scanning using nmap (requires sudo):
-- Shows device hostnames, IP addresses, MAC addresses, and vendors
-- Requires nmap to be installed (`brew install nmap`)
-- Needs sudo privileges for MAC address detection
+- `ANSIBLE_HOST_KEY_CHECKING=False` - For initial SSH key deployment
+- `ANSIBLE_STDOUT_CALLBACK=default` - For better interactive prompt display
 
-**Direct Usage:**
-```bash
-cd scripts/utils
-sudo ./scan_network.sh 192.168.1.0/24
-```
+### Dependencies
 
-### 4. `utils/simple_scan.sh`
-Performs basic network discovery using ping:
-- Works without sudo privileges
-- Shows IP addresses and hostnames
-- Faster but less detailed than nmap scan
-- Runs ping sweeps in parallel for speed
+- Ansible (ansible-playbook command)
+- Valid inventory file at `inventories/hosts.yml`
+- Playbooks directory at `playbooks/`
 
-**Direct Usage:**
-```bash
-cd scripts/utils
-./simple_scan.sh 192.168.1.0/24
-```
+### Integration
 
-## Features
+This script is designed to work with:
+- **Task Runner**: Called via `task playbook -- <args>`
+- **Direct Execution**: Can be run standalone
+- **Interactive Shell**: Supports both scripted and interactive use cases
 
-- **Dynamic Subnet Discovery**: No need to manually configure network ranges
-- **Privilege Detection**: Automatically chooses the best scanning method available
-- **Modular Design**: Each script has a single responsibility
-- **Error Handling**: Graceful fallbacks and informative error messages
-- **macOS Optimized**: Uses macOS-specific network commands for reliability
+### Error Handling
 
-## Requirements
-
-- macOS (tested with the current network stack)
-- Bash shell
-- For detailed scans: `nmap` (`brew install nmap`)
-- For detailed scans: sudo privileges
-
-## Example Output
-
-```
-Discovering local subnet...
-Detected subnet: 192.168.50.0/24
-
-Using ping sweep method (no MAC addresses)...
-Format: IP Address       Status    Hostname
-==========================================
-192.168.50.1     UP        GT-AC5300-AA60
-192.168.50.121   UP        Jordans-MBP
-192.168.50.195   UP        homeassistant
-==========================================
-```
-
-## Ansible Integration
-
-These scripts can be used to:
-1. Discover Pi devices on your network
-2. Update your `inventories/hosts.ini` file with discovered IPs
-3. Validate connectivity before running playbooks
+- Validates playbook existence before execution
+- Lists available playbooks when invalid input is provided
+- Provides clear error messages with colored output
+- Graceful handling of missing directories or files

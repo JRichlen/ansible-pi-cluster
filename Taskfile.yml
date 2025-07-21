@@ -1,0 +1,176 @@
+---
+version: '3'
+
+vars:
+  PLAYBOOKS_DIR: playbooks
+  INVENTORY: inventories/hosts.yml
+
+tasks:
+  default:
+    desc: Show available commands and dynamically discovered playbooks
+    silent: true
+    cmds:
+      - echo "🚀 Ansible Pi Cluster Management (Task)"
+      - echo ""
+      - echo "Static commands:"
+      - echo "  task install       - Install dependencies"
+      - echo "  task test          - Run tests"
+      - echo "  task all           - Run all playbooks in order"
+      - echo "  task clean         - Cleanup temporary files"
+      - echo "  task list          - List available playbooks"
+      - echo ""
+      - echo "Dynamic playbooks (run any by number or name):"
+      - echo "  task playbook -- <number|name> [ansible-options]"
+      - echo ""
+      - |
+        for playbook in {{.PLAYBOOKS_DIR}}/*.yml; do
+          if [ -f "$playbook" ]; then
+            basename_playbook=$(basename "$playbook" .yml)
+            if echo "$basename_playbook" | grep -q '^[0-9]_'; then
+              number=$(echo "$basename_playbook" | cut -d'_' -f1)
+              name=$(echo "$basename_playbook" | cut -d'_' -f2-)
+              echo "  task playbook -- $number         # $name"
+              echo "  task playbook -- $name     # $name (by name)"
+            else
+              echo "  task playbook -- $basename_playbook # $basename_playbook"
+            fi
+          fi
+        done
+      - echo ""
+      - echo "✅ Interactive playbooks work perfectly with task!"
+
+  install:
+    desc: Install dependencies
+    cmds:
+      - echo "🍺 Installing dependencies..."
+      - brew install ansible yamllint ansible-lint sshpass go-task/tap/go-task
+      - ansible-galaxy collection install community.general --force
+      - ansible-galaxy collection install ansible.posix --force
+      - echo "✅ Installation completed!"
+
+  # Dynamic playbook wrapper - handles all playbooks by number or name
+  playbook:
+    desc: >-
+      Run any playbook by number (1, 2) or name
+      (deploy-ssh-key, update-packages)
+    cmds:
+      - |
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "❌ Please specify a playbook number or name"
+          echo ""
+          echo "Usage: task playbook -- <number|name> [ansible-options]"
+          echo ""
+          echo "Examples:"
+          echo "  task playbook -- 1                    # Run playbook 1"
+          echo "  task playbook -- deploy-ssh-key       # Run by name"
+          echo "  task playbook -- 1 --check            # Dry run"
+          echo "  task playbook -- 1 --limit pi-node-01 # Target specific host"
+          echo ""
+          echo "Available playbooks:"
+          for playbook in {{.PLAYBOOKS_DIR}}/*.yml; do
+            if [ -f "$playbook" ]; then
+              basename_playbook=$(basename "$playbook" .yml)
+              if echo "$basename_playbook" | grep -q '^[0-9]_'; then
+                number=$(echo "$basename_playbook" | cut -d'_' -f1)
+                name=$(echo "$basename_playbook" | cut -d'_' -f2-)
+                echo "  task playbook -- $number         # $name"
+                echo "  task playbook -- $name # $name (by name)"
+              else
+                echo "  task playbook -- $basename_playbook" \
+                     "# $basename_playbook"
+              fi
+            fi
+          done
+          exit 1
+        fi
+      - |
+        # Parse the first argument as playbook identifier
+        args_array=({{.CLI_ARGS}})
+        playbook_input="${args_array[0]}"
+
+        echo "🚀 Running playbook: $playbook_input"
+
+        # Special handling for interactive playbooks
+        if echo "$playbook_input" | grep -q -E "(1|deploy-ssh-key)"; then
+          echo "🔐 This playbook may prompt for passwords interactively..."
+        fi
+
+        # Pass all arguments to run-playbook.sh
+        ./scripts/run-playbook.sh {{.CLI_ARGS}}
+
+  test:
+    desc: Run tests in escalating order of importance
+    cmds:
+      - echo "🧪 Running tests in escalating order of importance..."
+      - echo "1/3 Running YAML syntax validation..."
+      - |
+        if command -v yamllint >/dev/null 2>&1; then
+          yamllint . && echo "✔ YAML syntax validation passed"
+        else
+          echo "⚠️  yamllint not installed, skipping YAML validation"
+        fi
+      - echo "2/3 Running Ansible syntax validation..."
+      - >-
+        ansible-playbook --syntax-check playbooks/*.yml &&
+        echo "✔ Ansible syntax validation passed"
+      - echo "3/3 Running Ansible lint (best practices)..."
+      - |
+        if command -v ansible-lint >/dev/null 2>&1; then
+          echo "ℹ️  Running ansible-lint..."
+          ansible-lint playbooks/ roles/ ||
+            echo "⚠️  Some lint warnings found, but syntax is valid"
+        else
+          echo "⚠️  ansible-lint not installed, skipping lint check"
+        fi
+      - >-
+        echo "✅ Essential tests completed! Playbooks are
+        syntactically valid."
+
+  all:
+    desc: Run all numbered playbooks in order (dynamically discovered)
+    cmds:
+      - echo "🏗️ Running complete Pi cluster setup workflow..."
+      - >-
+        echo "⚠️ This will run ALL numbered playbooks including
+        interactive ones"
+      - echo "Press Ctrl+C within 5 seconds to cancel..."
+      - sleep 5
+      - |
+        for playbook in {{.PLAYBOOKS_DIR}}/[0-9]_*.yml; do
+          if [ -f "$playbook" ]; then
+            number=$(basename "$playbook" | cut -d'_' -f1)
+            echo ""
+            echo "📋 Running playbook $number..."
+            task playbook -- $number
+          fi
+        done
+      - echo "✅ Complete Pi cluster setup finished!"
+
+  list:
+    desc: List available playbooks dynamically
+    silent: true
+    cmds:
+      - echo "Available playbooks (discovered dynamically):"
+      - |
+        for playbook in {{.PLAYBOOKS_DIR}}/*.yml; do
+          if [ -f "$playbook" ]; then
+            basename_playbook=$(basename "$playbook" .yml)
+            if echo "$basename_playbook" | grep -q '^[0-9]_'; then
+              number=$(echo "$basename_playbook" | cut -d'_' -f1)
+              name=$(echo "$basename_playbook" | cut -d'_' -f2-)
+              echo "  $number. $name" \
+                   "(task playbook -- $number or task playbook -- $name)"
+            else
+              echo "  - $basename_playbook" \
+                   "(task playbook -- $basename_playbook)"
+            fi
+          fi
+        done
+
+  clean:
+    desc: Cleanup temporary files
+    cmds:
+      - echo "🧹 Cleaning up temporary files..."
+      - find . -name "*.retry" -delete 2>/dev/null || true
+      - find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+      - echo "✔ Cleanup completed"
