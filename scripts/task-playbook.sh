@@ -119,6 +119,8 @@ analyze_connectivity() {
     local unreachable_hosts=()
     local ssh_key_hosts=()
     local password_hosts=()
+    local local_hosts=()
+    local tailnet_hosts=()
     
     # Handle case where no connectivity results exist
     if [ ! -d "$RESULTS_DIR" ]; then
@@ -126,17 +128,26 @@ analyze_connectivity() {
         return 0
     fi
     
-    # Parse connectivity results for each host
+    # Parse enhanced connectivity results for each host
     for result_file in "$RESULTS_DIR"/*.env; do
         if [ -f "$result_file" ]; then
             # Reset variables and source the result file
-            unset NETWORK_REACHABLE SSH_KEYS_WORK HOST ANSIBLE_USER TEST_TIMESTAMP
+            unset NETWORK_REACHABLE SSH_KEYS_WORK HOST ANSIBLE_USER TEST_TIMESTAMP SUCCESSFUL_ADDRESS USED_FALLBACK
             # shellcheck source=/dev/null
             . "$result_file"
             
             # Categorize hosts based on connectivity results
             if [ "$NETWORK_REACHABLE" = "true" ]; then
                 reachable_hosts+=("$HOST")
+                
+                # Categorize by address type used
+                if [ "$USED_FALLBACK" = "true" ]; then
+                    tailnet_hosts+=("$HOST")
+                else
+                    local_hosts+=("$HOST")
+                fi
+                
+                # Categorize by authentication method
                 if [ "$SSH_KEYS_WORK" = "true" ]; then
                     ssh_key_hosts+=("$HOST")
                 else
@@ -149,9 +160,14 @@ analyze_connectivity() {
         fi
     done
     
-    # Display clean summary of connectivity analysis
-    if [ ${#reachable_hosts[@]} -gt 0 ]; then
-        echo -e "${GREEN}✓ Reachable hosts: ${reachable_hosts[*]}${NC}"
+    # Display enhanced summary of connectivity analysis
+    if [ ${#local_hosts[@]} -gt 0 ]; then
+        echo -e "${GREEN}✓ Reachable hosts (local): ${local_hosts[*]}${NC}"
+    fi
+    
+    if [ ${#tailnet_hosts[@]} -gt 0 ]; then
+        echo -e "${YELLOW}✓ Reachable hosts (tailnet): ${tailnet_hosts[*]}${NC}"
+        echo -e "${YELLOW}⚠ Fallback network used for: ${tailnet_hosts[*]}${NC}"
     fi
     
     if [ ${#ssh_key_hosts[@]} -gt 0 ]; then
@@ -188,6 +204,70 @@ prompt_for_password() {
     esac
 }
 
+# Function to generate dynamic host addresses based on connectivity results
+generate_dynamic_host_vars() {
+    local temp_inventory="/tmp/ansible_dynamic_inventory.yml"
+    
+    # Handle case where no connectivity results exist
+    if [ ! -d "$RESULTS_DIR" ]; then
+        echo ""
+        return
+    fi
+    
+    # Check if we need to create a dynamic inventory
+    local has_overrides=false
+    for result_file in "$RESULTS_DIR"/*.env; do
+        if [ -f "$result_file" ]; then
+            # shellcheck source=/dev/null
+            . "$result_file"
+            if [ "$NETWORK_REACHABLE" = "true" ] && [ -n "$SUCCESSFUL_ADDRESS" ]; then
+                has_overrides=true
+                break
+            fi
+        fi
+    done
+    
+    # If no overrides needed, return empty
+    if [ "$has_overrides" = false ]; then
+        echo ""
+        return
+    fi
+    
+    # Create dynamic inventory based on original but with updated ansible_host values
+    echo "---" > "$temp_inventory"
+    echo "ubuntu:" >> "$temp_inventory"
+    echo "  hosts:" >> "$temp_inventory"
+    
+    # Parse connectivity results and create new inventory
+    for result_file in "$RESULTS_DIR"/*.env; do
+        if [ -f "$result_file" ]; then
+            # Reset variables and source the result file
+            unset NETWORK_REACHABLE SUCCESSFUL_ADDRESS HOST
+            # shellcheck source=/dev/null
+            . "$result_file"
+            
+            if [ "$NETWORK_REACHABLE" = "true" ] && [ -n "$SUCCESSFUL_ADDRESS" ]; then
+                # Convert ubuntu-X.local to ubuntu-X for inventory
+                local inventory_host
+                inventory_host="${HOST%.local}"
+                echo "    ${inventory_host}:" >> "$temp_inventory"
+                echo "      ansible_host: ${SUCCESSFUL_ADDRESS}" >> "$temp_inventory"
+                echo "      tailnet_fallback: ${SUCCESSFUL_ADDRESS}" >> "$temp_inventory"
+            fi
+        fi
+    done
+    
+    # Add group vars from original inventory
+    echo "" >> "$temp_inventory"
+    echo "  vars:" >> "$temp_inventory"
+    echo "    ansible_user: \"{{ lookup('env','USER') }}\"" >> "$temp_inventory"
+    echo "    ansible_ssh_common_args: >-" >> "$temp_inventory"
+    echo "      -o ControlMaster=auto -o ControlPersist=60s" >> "$temp_inventory"
+    echo "      -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" >> "$temp_inventory"
+    
+    echo "$temp_inventory"
+}
+
 # Function to run the actual playbook with proper TTY handling
 run_playbook() {
     local playbook_name="$1"
@@ -200,6 +280,16 @@ run_playbook() {
         ansible_args+=("--ask-pass")
     fi
     
+    # Generate dynamic host addresses based on connectivity results
+    local dynamic_inventory
+    dynamic_inventory=$(generate_dynamic_host_vars)
+    
+    # Determine which inventory to use
+    local inventory_path="$INVENTORY_PATH"
+    if [ -n "$dynamic_inventory" ]; then
+        inventory_path="$dynamic_inventory"
+    fi
+    
     # Add any additional arguments passed to the script
     ansible_args+=("$@")
     
@@ -208,13 +298,16 @@ run_playbook() {
     echo
     echo -e "${BLUE}Running playbook: $playbook_name${NC}"
     echo "Playbook path: $playbook_path"
-    echo "Inventory path: $INVENTORY_PATH"
+    echo "Inventory path: $inventory_path"
+    if [ -n "$dynamic_inventory" ]; then
+        echo -e "${YELLOW}Using dynamic inventory with tailnet addresses${NC}"
+    fi
     
     # Use script command to ensure proper TTY allocation for interactive prompts
     # This is critical for password prompts and other interactive elements
     script -q /dev/null \
         ansible-playbook \
-        -i "$INVENTORY_PATH" \
+        -i "$inventory_path" \
         "$playbook_path" \
         "${ansible_args[@]}"
 }

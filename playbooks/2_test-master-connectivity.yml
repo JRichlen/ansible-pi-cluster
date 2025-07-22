@@ -1,12 +1,12 @@
 ---
 - name: Test Master Node SSH Connectivity to Worker Nodes
-  hosts: ubuntu-1.local
+  hosts: ubuntu-1
   gather_facts: true
   vars:
     worker_nodes:
-      - ubuntu-2.local
-      - ubuntu-3.local
-      - ubuntu-4.local
+      - ubuntu-2
+      - ubuntu-3
+      - ubuntu-4
     connection_timeout: 5
 
   tasks:

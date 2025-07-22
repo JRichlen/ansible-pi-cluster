@@ -86,7 +86,7 @@
       ansible.builtin.stat:
         path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster"
       register: master_key_check
-      when: inventory_hostname == 'ubuntu-1.local'
+      when: inventory_hostname == 'ubuntu-1'
       become: false
 
     - name: Generate SSH key pair on master node
@@ -98,7 +98,7 @@
           -C "{{ ansible_user }}@{{ inventory_hostname }}-cluster-master"
       become: false
       when:
-        - inventory_hostname == 'ubuntu-1.local'
+        - inventory_hostname == 'ubuntu-1'
         - not master_key_check.stat.exists
       register: key_generation
       changed_when: key_generation.rc == 0
@@ -114,7 +114,7 @@
         - {path: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster.pub",
            mode: '0644'}
       when:
-        - inventory_hostname == 'ubuntu-1.local'
+        - inventory_hostname == 'ubuntu-1'
         - not master_key_check.stat.exists or key_generation is changed
       become: false
 
@@ -122,9 +122,10 @@
       ansible.builtin.slurp:
         src: "/home/{{ ansible_user }}/.ssh/id_rsa_cluster.pub"
       register: master_public_key
-      delegate_to: ubuntu-1.local
+      delegate_to: ubuntu-1
       become: false
-      when: "'ubuntu-1.local' in groups['ubuntu']"
+      when: "'ubuntu-1' in groups['ubuntu']"
+      run_once: true
 
     - name: Deploy master node public key to worker nodes
       ansible.posix.authorized_key:
@@ -133,8 +134,9 @@
         state: present
         comment: "Master node (ubuntu-1) key"
       when:
-        - inventory_hostname != 'ubuntu-1.local'
+        - inventory_hostname != 'ubuntu-1'
         - master_public_key is defined
+        - master_public_key.content is defined
 
     - name: Display master key deployment summary
       ansible.builtin.debug:
@@ -142,7 +144,7 @@
           - "✅ Master node SSH key setup completed"
           - >-
             ✅ Worker node {{ inventory_hostname }} can now accept SSH
-            from ubuntu-1.local
+            from ubuntu-1
       when:
-        - inventory_hostname != 'ubuntu-1.local'
+        - inventory_hostname != 'ubuntu-1'
         - master_public_key is defined

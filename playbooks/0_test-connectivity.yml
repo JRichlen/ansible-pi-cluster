@@ -1,40 +1,67 @@
 ---
 - name: Test Host Connectivity and SSH Authentication Methods
   hosts: ubuntu
-  gather_facts: true  # Enable fact gathering to get ansible_date_time
+  gather_facts: false  # Disable fact gathering to avoid connection failures
   vars:
     connection_timeout: 10
     results_dir: /tmp/ansible_connectivity_results
 
   tasks:
-    # Phase 1: Basic network connectivity test
-    - name: Test basic network connectivity (port 22)
+    # Phase 1: Basic network connectivity test (primary address)
+    - name: Test basic network connectivity (port 22) - Primary
       ansible.builtin.wait_for:
-        host: "{{ inventory_hostname }}"
+        host: "{{ ansible_host }}"
         port: 22
         timeout: "{{ connection_timeout }}"
       delegate_to: localhost
-      register: network_connectivity
+      register: primary_connectivity
       failed_when: false
 
-    - name: Skip host if network unreachable
-      ansible.builtin.meta: end_host
-      when: network_connectivity.failed
+    # Phase 1b: Test tailnet fallback connectivity if primary fails
+    - name: Test basic network connectivity (port 22) - Tailnet Fallback
+      ansible.builtin.wait_for:
+        host: "{{ tailnet_fallback }}"
+        port: 22
+        timeout: "{{ connection_timeout }}"
+      delegate_to: localhost
+      register: tailnet_connectivity
+      failed_when: false
+      when:
+        - (primary_connectivity.elapsed is not defined or primary_connectivity.elapsed >= connection_timeout)
+        - tailnet_fallback is defined
 
-    # Phase 2: Test SSH key authentication (no password fallback)
+    # Determine successful address and overall connectivity
+    - name: Set connection facts
+      ansible.builtin.set_fact:
+        network_reachable: >-
+          {{ (primary_connectivity.elapsed is defined and primary_connectivity.elapsed < connection_timeout) or
+          (tailnet_fallback is defined and tailnet_connectivity.elapsed is defined and tailnet_connectivity.elapsed < connection_timeout) }}
+        successful_address: >-
+          {{ ansible_host if (primary_connectivity.elapsed is defined and primary_connectivity.elapsed < connection_timeout)
+          else tailnet_fallback }}
+        used_fallback: >-
+          {{ not (primary_connectivity.elapsed is defined and primary_connectivity.elapsed < connection_timeout) and
+          tailnet_fallback is defined and tailnet_connectivity.elapsed is defined and tailnet_connectivity.elapsed < connection_timeout }}
+
+    - name: Skip host if network unreachable via both methods
+      ansible.builtin.meta: end_host
+      when: not network_reachable
+
+    # Phase 2: Test SSH key authentication on successful address
     - name: Test SSH key authentication
       ansible.builtin.command:
         cmd: >-
           ssh -o BatchMode=yes -o PasswordAuthentication=no
           -o ConnectTimeout={{ connection_timeout }}
           -o StrictHostKeyChecking=no
-          {{ ansible_user }}@{{ inventory_hostname }} echo 'ssh_key_works'
+          {{ ansible_user }}@{{ successful_address }}
+          echo 'ssh_key_works'
       delegate_to: localhost
       register: ssh_key_test
       failed_when: false
       changed_when: false
 
-    # Phase 3: Store connectivity results for script to read
+    # Phase 3: Store enhanced connectivity results for script to read
     - name: Ensure results directory exists
       ansible.builtin.file:
         path: "{{ results_dir }}"
@@ -43,31 +70,41 @@
       delegate_to: localhost
       when: inventory_hostname == groups['ubuntu'][0]
 
-    - name: Store connectivity test results
+    - name: Get current timestamp
+      ansible.builtin.command: date +%s
+      register: current_timestamp
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+
+    - name: Store enhanced connectivity test results
       ansible.builtin.copy:
         content: |
-          # Connectivity test results for {{ inventory_hostname }}
-          NETWORK_REACHABLE=true
+          # Enhanced connectivity test results for {{ inventory_hostname }}
+          NETWORK_REACHABLE={{ 'true' if network_reachable else 'false' }}
+          SUCCESSFUL_ADDRESS={{ successful_address }}
+          USED_FALLBACK={{ 'true' if used_fallback else 'false' }}
           SSH_KEYS_WORK={{ 'true' if ssh_key_test.rc == 0 else 'false' }}
           HOST={{ inventory_hostname }}
           ANSIBLE_USER={{ ansible_user }}
-          TEST_TIMESTAMP={{- ansible_date_time.epoch | default('0') }}
+          TEST_TIMESTAMP={{ current_timestamp.stdout }}
         dest: "{{ results_dir }}/{{ inventory_hostname }}.env"
         mode: '0644'
       delegate_to: localhost
 
-    # Phase 4: Summary for unreachable hosts
-    # (this won't run if connectivity fails)
+    # Phase 4: Summary for unreachable hosts (fallback from original logic)
     - name: Mark unreachable hosts
       ansible.builtin.copy:
         content: |
-          # Connectivity test results for {{ inventory_hostname }}
+          # Enhanced connectivity test results for {{ inventory_hostname }}
           NETWORK_REACHABLE=false
+          SUCCESSFUL_ADDRESS={{ ansible_host }}
+          USED_FALLBACK=false
           SSH_KEYS_WORK=false
           HOST={{ inventory_hostname }}
           ANSIBLE_USER={{ ansible_user }}
-          TEST_TIMESTAMP={{ ansible_date_time.epoch | default('0') }}
+          TEST_TIMESTAMP={{ current_timestamp.stdout }}
         dest: "{{ results_dir }}/{{ inventory_hostname }}.env"
         mode: '0644'
       delegate_to: localhost
-      when: network_connectivity.failed
+      when: not network_reachable
