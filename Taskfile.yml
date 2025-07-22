@@ -47,6 +47,11 @@ tasks:
     interactive: true
     cmds:
       - ./scripts/task-playbook.sh {{.CLI_ARGS}}
+  
+  play:
+    desc: Alias for 'playbook' task
+    cmds:
+      - task playbook -- {{.CLI_ARGS}}
 
   all:
     desc: Run all numbered playbooks in sequence with intelligent workflow
