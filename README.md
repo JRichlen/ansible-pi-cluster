@@ -32,8 +32,9 @@ task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detect
 task playbook -- 2_test-master-connectivity  # Test master node SSH to workers
 task playbook -- 3_update-packages      # Update system packages
 task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
-task playbook -- 5_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
-task playbook -- 6_verify-kubernetes    # Verify cluster health and test workloads
+task playbook -- 5_prepare-kubernetes   # Prepare nodes for Kubernetes (container runtime, packages)
+task playbook -- 6_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
+task playbook -- 7_verify-kubernetes    # Verify cluster health and test workloads
 ```
 
 ### What You'll Experience
@@ -92,10 +93,11 @@ task playbook -- 1_deploy-ssh-key    # Required for inter-node communication
 task playbook -- 3_update-packages   # Recommended for latest system packages
 
 # Deploy full Kubernetes cluster
-task playbook -- 5_deploy-kubernetes
+task playbook -- 5_prepare-kubernetes   # Prepare container runtime and packages
+task playbook -- 6_deploy-kubernetes    # Deploy full cluster
 
 # Verify cluster health (optional)
-task playbook -- 6_verify-kubernetes
+task playbook -- 7_verify-kubernetes
 ```
 
 **What gets deployed:**
@@ -125,8 +127,9 @@ See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for detailed 
 │   ├── 2_test-master-connectivity.yml # Master-worker SSH verification  
 │   ├── 3_update-packages.yml     # System updates
 │   ├── 4_install-tailscale.yml   # Tailscale VPN setup
-│   ├── 5_deploy-kubernetes.yml   # Full Kubernetes cluster deployment
-│   └── 6_verify-kubernetes.yml   # Cluster health verification
+│   ├── 5_prepare-kubernetes.yml  # Kubernetes preparation (runtime, packages)
+│   ├── 6_deploy-kubernetes.yml   # Full Kubernetes cluster deployment
+│   └── 7_verify-kubernetes.yml   # Cluster health verification
 ├── scripts/
 │   ├── task-playbook.sh      # Consolidated intelligent playbook runner
 │   ├── task-*.sh            # Individual task implementations
