@@ -4,7 +4,7 @@ echo "🧪 Running tests in escalating order of importance..."
 echo "1/3 Running YAML syntax validation..."
 
 if command -v yamllint >/dev/null 2>&1; then
-  yamllint . && echo "✔ YAML syntax validation passed"
+  yamllint -c .yamllint . && echo "✔ YAML syntax validation passed"
 else
   echo "⚠️  yamllint not installed, skipping YAML validation"
 fi

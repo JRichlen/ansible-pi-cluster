@@ -1,0 +1,25 @@
+---
+# yamllint configuration for ansible-pi-cluster
+# https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+rules:
+  # Allow longer lines for Ansible playbooks and complex configurations
+  line-length:
+    max: 180
+    level: error
+
+  # Be more lenient with comments to allow for detailed documentation
+  comments:
+    min-spaces-from-content: 1
+
+  # Allow indentation flexibility for Ansible structures
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Allow truthy values common in Ansible (yes/no, on/off)
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']

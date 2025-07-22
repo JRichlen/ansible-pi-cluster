@@ -1,0 +1,26 @@
+---
+# Ansible Pi Cluster - Requirements
+# This file defines external roles and collections needed for the project
+
+collections:
+  # Core Ansible collections
+  - name: ansible.posix
+    version: ">=1.5.4"
+
+  # Community general utilities
+  - name: community.general
+    version: ">=7.0.0"
+
+  # Kubernetes management collection
+  - name: kubernetes.core
+    version: ">=2.4.0"
+
+  # Tailscale VPN management
+  - name: artis3n.tailscale
+    version: ">=1.0.1"
+
+roles: []
+  # Optional: If you prefer using the community Kubernetes role instead of custom tasks
+  # Uncomment the following if you want to use geerlingguy's Kubernetes role as an alternative
+  # - name: geerlingguy.kubernetes
+  #   version: ">=7.0.0"

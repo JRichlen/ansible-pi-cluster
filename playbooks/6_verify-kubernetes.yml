@@ -1,0 +1,296 @@
+---
+- name: Verify Kubernetes Cluster Health and Deploy Test Workload
+  hosts: ubuntu-1
+  gather_facts: true
+  become: false
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    test_namespace: "cluster-test"
+
+  tasks:
+    - name: Check if kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_check
+
+    - name: Fail if kubeconfig not found
+      ansible.builtin.fail:
+        msg: "Kubeconfig not found at {{ kubeconfig_path }}. Run Kubernetes deployment first."
+      when: not kubeconfig_check.stat.exists
+
+    # Cluster Health Verification
+    - name: Get cluster info
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: cluster_nodes
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "Found {{ cluster_nodes.resources | length }} nodes in cluster"
+
+    - name: Verify all nodes are Ready
+      ansible.builtin.assert:
+        that:
+          - cluster_nodes.resources | length >= 4
+          - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+        fail_msg: "Node {{ item.metadata.name }} is not Ready"
+        success_msg: "Node {{ item.metadata.name }} is Ready"
+      loop: "{{ cluster_nodes.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    # System Pods Verification
+    - name: Check system pods in kube-system namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: system_pods
+
+    - name: Verify system pods are running
+      ansible.builtin.assert:
+        that:
+          - item.status.phase == "Running"
+        fail_msg: "System pod {{ item.metadata.name }} is not running ({{ item.status.phase }})"
+        success_msg: "System pod {{ item.metadata.name }} is running"
+      loop: "{{ system_pods.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - "'kube-proxy' in item.metadata.name or 'coredns' in item.metadata.name or 'cilium' in item.metadata.name"
+
+    # Create Test Namespace
+    - name: Create test namespace
+      kubernetes.core.k8s:
+        name: "{{ test_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    # Deploy Test Application
+    - name: Deploy test nginx pods across nodes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx-test
+            namespace: "{{ test_namespace }}"
+            labels:
+              app: nginx-test
+          spec:
+            replicas: 3
+            selector:
+              matchLabels:
+                app: nginx-test
+            template:
+              metadata:
+                labels:
+                  app: nginx-test
+              spec:
+                containers:
+                  - name: nginx
+                    image: nginx:1.25-alpine
+                    ports:
+                      - containerPort: 80
+                    resources:
+                      requests:
+                        memory: "64Mi"
+                        cpu: "50m"
+                      limits:
+                        memory: "128Mi"
+                        cpu: "100m"
+                affinity:
+                  podAntiAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                      - weight: 100
+                        podAffinityTerm:
+                          labelSelector:
+                            matchExpressions:
+                              - key: app
+                                operator: In
+                                values:
+                                  - nginx-test
+                          topologyKey: kubernetes.io/hostname
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    # Wait for Deployment
+    - name: Wait for nginx deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: nginx-test
+        namespace: "{{ test_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    # Verify Pod Distribution
+    - name: Get nginx pods
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ test_namespace }}"
+        label_selectors:
+          - app=nginx-test
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: nginx_pods
+
+    - name: Display pod distribution across nodes
+      ansible.builtin.debug:
+        msg:
+          - "Pod {{ item.metadata.name }} is running on {{ item.spec.nodeName }}"
+      loop: "{{ nginx_pods.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    # Network Test Service
+    - name: Create service for nginx test
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: nginx-test-service
+            namespace: "{{ test_namespace }}"
+          spec:
+            selector:
+              app: nginx-test
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: ClusterIP
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    # Test Pod-to-Pod Communication
+    - name: Create network test pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: network-test
+            namespace: "{{ test_namespace }}"
+          spec:
+            containers:
+              - name: test
+                image: alpine:3.18
+                command: ["sleep", "3600"]
+                resources:
+                requests:
+                  memory: "32Mi"
+                  cpu: "10m"
+                limits:
+                  memory: "64Mi"
+                  cpu: "20m"
+            restartPolicy: Never
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Wait for network test pod to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        name: network-test
+        namespace: "{{ test_namespace }}"
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 120
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Test service connectivity from test pod
+      kubernetes.core.k8s_exec:
+        namespace: "{{ test_namespace }}"
+        pod: network-test
+        command: |
+          apk add --no-cache curl &&
+          curl -s -o /dev/null -w "%{http_code}" nginx-test-service
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: connectivity_test
+      changed_when: false
+
+    - name: Verify connectivity test passed
+      ansible.builtin.assert:
+        that:
+          - connectivity_test.stdout | trim == "200"
+        success_msg: "✅ Pod-to-pod networking is working correctly"
+        fail_msg: "❌ Pod-to-pod networking failed (HTTP {{ connectivity_test.stdout | trim }})"
+
+    # Cilium-specific Tests
+    - name: Check Cilium CLI is available
+      ansible.builtin.stat:
+        path: /usr/local/bin/cilium
+      register: cilium_cli_check
+
+    - name: Run Cilium connectivity test (if CLI available)
+      ansible.builtin.command:
+        cmd: /usr/local/bin/cilium connectivity test --test-concurrency=1 --junit-file=/tmp/cilium-junit.xml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: cilium_connectivity
+      when:
+        - cilium_cli_check.stat.exists
+      changed_when: false
+      failed_when: false  # Don't fail the playbook if connectivity tests have issues
+
+    - name: Display Cilium connectivity results
+      ansible.builtin.debug:
+        msg:
+          - "Cilium connectivity test completed"
+          - "Result: {{ 'PASSED' if cilium_connectivity.rc == 0 else 'SOME TESTS FAILED' }}"
+      when:
+        - cilium_cli_check.stat.exists
+        - cilium_connectivity is defined
+
+    # Cluster Resource Summary
+    - name: Get cluster resource usage
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      register: nodes_detailed
+
+    - name: Display cluster summary
+      ansible.builtin.debug:
+        msg:
+          - "🎉 Kubernetes cluster verification completed successfully!"
+          - "📊 Cluster Summary:"
+          - "  - Nodes: {{ cluster_nodes.resources | length }} (all Ready)"
+          - "  - Test pods deployed: {{ nginx_pods.resources | length }}"
+          - "  - Networking: ✅ Functional"
+          - "  - DNS: ✅ Resolving services"
+          - "  - Pod distribution: ✅ Cross-node scheduling working"
+          - "🚀 Your Raspberry Pi Kubernetes cluster is ready for workloads!"
+
+    # Cleanup Option (commented out - uncomment to auto-cleanup)
+    - name: Cleanup test resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ test_namespace }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"

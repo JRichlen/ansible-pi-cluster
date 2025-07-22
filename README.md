@@ -10,6 +10,7 @@ A modern, interactive Ansible automation system for managing Raspberry Pi cluste
 - **⚡ Efficient Workflow**: Cached connectivity results, skip unnecessary steps
 - **🔒 Robust Architecture**: Clean separation of playbook logic and user interaction
 - **🔑 Master Node SSH**: Automatic SSH key generation and distribution for inter-node communication
+- **☸️ Kubernetes Ready**: Full cluster deployment with ARM64 optimization for Raspberry Pi
 
 ## 🚀 Quick Start
 
@@ -31,7 +32,8 @@ task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detect
 task playbook -- 2_test-master-connectivity  # Test master node SSH to workers
 task playbook -- 3_update-packages      # Update system packages
 task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
-task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
+task playbook -- 5_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
+task playbook -- 6_verify-kubernetes    # Verify cluster health and test workloads
 ```
 
 ### What You'll Experience
@@ -80,20 +82,57 @@ The system uses a three-layer approach:
 
 See [WORKFLOW.md](WORKFLOW.md) for detailed architecture documentation.
 
+## ☸️ Kubernetes Deployment
+
+Deploy a production-ready Kubernetes cluster optimized for Raspberry Pi:
+
+```bash
+# Prerequisites (run these first)
+task playbook -- 1_deploy-ssh-key    # Required for inter-node communication
+task playbook -- 3_update-packages   # Recommended for latest system packages
+
+# Deploy full Kubernetes cluster
+task playbook -- 5_deploy-kubernetes
+
+# Verify cluster health (optional)
+task playbook -- 6_verify-kubernetes
+```
+
+**What gets deployed:**
+- **Control Plane:** ubuntu-1 (master with kubeadm)
+- **Workers:** ubuntu-2, ubuntu-3, ubuntu-4
+- **Container Runtime:** containerd (ARM64 optimized)
+- **CNI:** Cilium networking with eBPF and kube-proxy replacement
+- **Features:** Graceful shutdown, systemd cgroups, memory optimization
+
+**After deployment:**
+- Kubeconfig automatically copied to `~/.kube/pi-cluster-config`
+- Ready for kubectl, helm, and any Kubernetes workloads
+- Optimized for Raspberry Pi hardware constraints
+
+See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for detailed deployment guide.
+
 ## 📁 Project Structure
 
 ```
 ├── Taskfile.yml              # Task runner configuration
+├── requirements.yml          # Ansible collections and roles
 ├── inventories/
 │   └── hosts.yml             # Ansible inventory
 ├── playbooks/
 │   ├── 0_test-connectivity.yml    # Silent connectivity testing
 │   ├── 1_deploy-ssh-key.yml      # SSH key deployment
-│   └── 2_update-packages.yml     # System updates
+│   ├── 2_test-master-connectivity.yml # Master-worker SSH verification  
+│   ├── 3_update-packages.yml     # System updates
+│   ├── 4_install-tailscale.yml   # Tailscale VPN setup
+│   ├── 5_deploy-kubernetes.yml   # Full Kubernetes cluster deployment
+│   └── 6_verify-kubernetes.yml   # Cluster health verification
 ├── scripts/
 │   ├── task-playbook.sh      # Consolidated intelligent playbook runner
 │   ├── task-*.sh            # Individual task implementations
 │   └── simulate-*.sh        # Testing utilities
+├── docs/
+│   └── kubernetes-deployment.md  # Kubernetes deployment guide
 └── WORKFLOW.md              # Detailed architecture documentation
 ```
 
