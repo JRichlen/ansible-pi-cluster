@@ -1,0 +1,252 @@
+---
+- name: Prepare Raspberry Pi Nodes for Kubernetes Deployment
+  hosts: ubuntu
+  gather_facts: true
+  become: true
+  vars:
+    kubernetes_version: "1.29"
+
+  pre_tasks:
+    - name: Check if running on Ubuntu
+      ansible.builtin.fail:
+        msg: "This playbook is designed for Ubuntu systems only"
+      when: ansible_distribution != "Ubuntu"
+
+    - name: Check if running on ARM64
+      ansible.builtin.debug:
+        msg: "Architecture: {{ ansible_architecture }}"
+
+    - name: Verify minimum Ubuntu version
+      ansible.builtin.fail:
+        msg: "Ubuntu 20.04 or newer required for Kubernetes {{ kubernetes_version }}"
+      when: ansible_distribution_version is version('20.04', '<')
+
+  tasks:
+    # Phase 1: System Preparation
+    - name: Update system packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: safe
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - iptables
+          - arptables
+          - ebtables
+        state: present
+
+    - name: Disable swap permanently
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#].*\s+swap\s+.*)$'
+        line: '# \1'
+        backrefs: true
+        backup: true
+      notify: Turn off swap immediately
+
+    # Phase 2: Docker/Containerd Setup
+    - name: Create keyrings directory
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /tmp/docker.gpg
+        mode: '0644'
+
+    - name: Add Docker GPG key to keyring
+      ansible.builtin.command:
+        cmd: gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker.gpg
+        creates: /usr/share/keyrings/docker-archive-keyring.gpg
+
+    - name: Remove temporary GPG file
+      ansible.builtin.file:
+        path: /tmp/docker.gpg
+        state: absent
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Install containerd
+      ansible.builtin.apt:
+        name: containerd.io
+        state: present
+        update_cache: true
+
+    - name: Generate containerd configuration
+      ansible.builtin.shell:
+        cmd: containerd config default > /etc/containerd/config.toml
+        creates: /etc/containerd/config.toml
+
+    - name: Configure containerd for systemd cgroup driver
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*SystemdCgroup = false'
+        line: '            SystemdCgroup = true'
+        backup: true
+      notify: Restart containerd
+
+    - name: Enable memory cgroups in boot configuration
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/cmdline.txt
+        regexp: '^(.*)$'
+        line: '\1 cgroup_enable=memory cgroup_memory=1'
+        backrefs: true
+      register: boot_config_changed
+
+    - name: Enable memory cgroups in alternate boot location
+      ansible.builtin.lineinfile:
+        path: /boot/cmdline.txt
+        regexp: '^(.*)$'
+        line: '\1 cgroup_enable=memory cgroup_memory=1'
+        backrefs: true
+      failed_when: false
+      register: alt_boot_config_changed
+
+    - name: Enable and start containerd
+      ansible.builtin.systemd:
+        name: containerd
+        enabled: true
+        state: started
+
+    # Phase 3: Kubernetes Installation
+    - name: Download Kubernetes GPG key
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+        dest: /tmp/kubernetes.gpg
+        mode: '0644'
+
+    - name: Add Kubernetes GPG key to keyring
+      ansible.builtin.command:
+        cmd: gpg --dearmor -o /usr/share/keyrings/kubernetes-archive-keyring.gpg /tmp/kubernetes.gpg
+        creates: /usr/share/keyrings/kubernetes-archive-keyring.gpg
+
+    - name: Remove temporary Kubernetes GPG file
+      ansible.builtin.file:
+        path: /tmp/kubernetes.gpg
+        state: absent
+
+    - name: Add Kubernetes repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /"
+        state: present
+
+    - name: Install Kubernetes packages
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: true
+
+    - name: Hold Kubernetes packages at current version
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Configure kubelet for ARM64 and systemd
+      ansible.builtin.lineinfile:
+        path: /etc/default/kubelet
+        line: 'KUBELET_EXTRA_ARGS=--cgroup-driver=systemd --runtime-request-timeout=15m'
+        create: true
+        mode: '0644'
+        backup: true
+      notify: Restart kubelet
+
+    - name: Enable kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: true
+
+    # Phase 4: Reboot if memory cgroups configuration changed
+    - name: Check if reboot is needed
+      ansible.builtin.set_fact:
+        reboot_needed: "{{ boot_config_changed is changed or alt_boot_config_changed is changed }}"
+
+    - name: Display reboot message
+      ansible.builtin.debug:
+        msg: |
+          ⚠️  Memory cgroups configuration has been updated in boot configuration.
+          🔄 Rebooting Pi nodes to enable memory cgroups support for Kubernetes...
+      when: reboot_needed
+
+    - name: Reboot Pi nodes to enable memory cgroups
+      ansible.builtin.reboot:
+        msg: "Rebooting to enable memory cgroups for Kubernetes"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+      when: reboot_needed
+
+    - name: Verify memory cgroups are now available
+      ansible.builtin.command:
+        cmd: grep -q "cgroup_enable=memory" /proc/cmdline
+      register: cgroup_check
+      failed_when: false
+      changed_when: false
+
+    - name: Display memory cgroups status
+      ansible.builtin.debug:
+        msg: |
+          {% if cgroup_check.rc == 0 %}
+          ✅ Memory cgroups are now enabled and active
+          🚀 Ready for Kubernetes deployment - run playbook 6_deploy-kubernetes next
+          {% else %}
+          ⚠️  Memory cgroups may not be fully active yet
+          💡 You may need to run this playbook again or manually reboot
+          {% endif %}
+
+    - name: Restart containerd after reboot
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+      when: reboot_needed
+
+    - name: Display preparation complete message
+      ansible.builtin.debug:
+        msg:
+          - "✅ Kubernetes preparation completed successfully!"
+          - "✅ System packages updated and required packages installed"
+          - "✅ Containerd installed and configured with systemd cgroup driver"
+          - "✅ Kubernetes packages installed and held at version {{ kubernetes_version }}"
+          - "✅ Memory cgroups enabled in boot configuration"
+          - "{% if reboot_needed %}🔄 System rebooted to activate memory cgroups{% endif %}"
+          - "🚀 Ready for Kubernetes deployment - run: task play -- 6"
+
+  handlers:
+    - name: Turn off swap immediately
+      ansible.builtin.command:
+        cmd: swapoff -a
+      changed_when: false
+
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+
+    - name: Restart kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted

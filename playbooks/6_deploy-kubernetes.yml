@@ -1,0 +1,365 @@
+---
+- name: Deploy Kubernetes Cluster to Raspberry Pi Nodes
+  hosts: ubuntu
+  gather_facts: true
+  become: true
+  vars:
+    kubernetes_version: "1.29"
+    kubernetes_pod_network:
+      cni: cilium
+      cidr: "10.0.0.0/8"
+    kubernetes_control_plane: ubuntu-1
+    kubernetes_workers:
+      - ubuntu-2
+      - ubuntu-3
+      - ubuntu-4
+
+  pre_tasks:
+    - name: Check if running on Ubuntu
+      ansible.builtin.fail:
+        msg: "This playbook is designed for Ubuntu systems only"
+      when: ansible_distribution != "Ubuntu"
+
+    - name: Check if running on ARM64
+      ansible.builtin.debug:
+        msg: "Architecture: {{ ansible_architecture }}"
+
+    - name: Verify minimum Ubuntu version
+      ansible.builtin.fail:
+        msg: "Ubuntu 20.04 or newer required for Kubernetes {{ kubernetes_version }}"
+      when: ansible_distribution_version is version('20.04', '<')
+
+    - name: Verify memory cgroups are enabled
+      ansible.builtin.command:
+        cmd: grep -q "cgroup_enable=memory" /proc/cmdline
+      register: cgroup_check
+      failed_when: cgroup_check.rc != 0
+      changed_when: false
+
+    - name: Display memory cgroups confirmation
+      ansible.builtin.debug:
+        msg: "✅ Memory cgroups are active - proceeding with Kubernetes deployment"
+
+    - name: Verify ethernet interface is active
+      ansible.builtin.fail:
+        msg: "Ethernet interface eth0 is not active. Please enable PoE/ethernet before deploying Kubernetes."
+      when: not ansible_eth0.active
+
+    - name: Display network interface information
+      ansible.builtin.debug:
+        msg:
+          - "🌐 Using ethernet interface for Kubernetes:"
+          - "   Interface: eth0"
+          - "   IP Address: {{ ansible_eth0.ipv4.address }}"
+          - "   Speed: {{ ansible_eth0.speed }}Mbps"
+          - "   MAC: {{ ansible_eth0.macaddress }}"
+
+  tasks:
+    # Phase 1: Verify Prerequisites and Fix Containerd
+    - name: Ensure containerd is running
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: true
+
+    - name: Stop containerd for configuration update
+      ansible.builtin.systemd:
+        name: containerd
+        state: stopped
+
+    - name: Remove existing containerd configuration
+      ansible.builtin.file:
+        path: /etc/containerd/config.toml
+        state: absent
+
+    - name: Generate fresh containerd configuration
+      ansible.builtin.shell:
+        cmd: containerd config default > /etc/containerd/config.toml
+      changed_when: true
+
+    - name: Configure containerd for systemd cgroup driver and CRI
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+
+    - name: Ensure CRI plugin is enabled
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*disabled_plugins.*'
+        line: '  disabled_plugins = []'
+        backup: true
+
+    - name: Start containerd with new configuration
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: true
+
+    - name: Wait for containerd to be ready
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Verify containerd CRI configuration
+      ansible.builtin.command:
+        cmd: containerd --version
+      register: containerd_version
+      changed_when: false
+
+    - name: Test containerd CRI endpoint
+      ansible.builtin.command:
+        cmd: crictl version
+      register: crictl_test
+      failed_when: false
+      changed_when: false
+
+    - name: Display containerd status
+      ansible.builtin.debug:
+        msg: |
+          Containerd version: {{ containerd_version.stdout }}
+          CRI test result: {{ crictl_test.rc == 0 | ternary('✅ CRI endpoint working', '⚠️ CRI endpoint issue') }}
+
+    # Phase 1.5: Configure Firewall for Kubernetes
+    - name: Configure UFW firewall for Kubernetes ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "6443"      # Kubernetes API server
+        - "2379:2380" # etcd server client API
+        - "10250"     # Kubelet API
+        - "10251"     # kube-scheduler
+        - "10252"     # kube-controller-manager
+        - "10255"     # Read-only Kubelet API
+        - "30000:32767" # NodePort Services range
+      notify: Reload UFW
+
+    - name: Display firewall configuration
+      ansible.builtin.debug:
+        msg:
+          - "🔥 Firewall configured for Kubernetes:"
+          - "   API Server: 6443/tcp"
+          - "   etcd: 2379-2380/tcp"
+          - "   Kubelet: 10250/tcp, 10255/tcp"
+          - "   Control Plane: 10251/tcp, 10252/tcp"
+          - "   NodePorts: 30000-32767/tcp"
+
+    # Phase 2: Control Plane Initialization (Master Node Only)
+    - name: Check if Kubernetes is already initialized
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: k8s_admin_conf
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Initialize Kubernetes control plane
+      ansible.builtin.command:
+        cmd: >-
+          kubeadm init
+          --pod-network-cidr={{ kubernetes_pod_network.cidr }}
+          --apiserver-advertise-address={{ ansible_eth0.ipv4.address }}
+          --apiserver-cert-extra-sans={{ ansible_eth0.ipv4.address }},{{ inventory_hostname }},{{ ansible_fqdn }}
+      register: kubeadm_init
+      when:
+        - inventory_hostname == kubernetes_control_plane
+        - not k8s_admin_conf.stat.exists
+      changed_when: kubeadm_init.rc == 0
+
+    - name: Create .kube directory for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Copy admin.conf to ansible user's kube config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        remote_src: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0600'
+        backup: true
+      when: inventory_hostname == kubernetes_control_plane
+
+    # Phase 3: Install CNI (Cilium)
+    - name: Check if Cilium is already installed
+      ansible.builtin.command:
+        cmd: kubectl get pods -n kube-system -l k8s-app=cilium --no-headers
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become: false
+      become_user: "{{ ansible_user }}"
+      register: cilium_check
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Install Cilium CLI on control plane
+      ansible.builtin.get_url:
+        url: "https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-arm64.tar.gz"
+        dest: "/tmp/cilium-cli.tar.gz"
+        mode: '0644'
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Extract Cilium CLI
+      ansible.builtin.unarchive:
+        src: "/tmp/cilium-cli.tar.gz"
+        dest: "/usr/local/bin"
+        remote_src: true
+        creates: "/usr/local/bin/cilium"
+        mode: '0755'
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Install Cilium CNI
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/bin/cilium install
+          --set kubeProxyReplacement=false
+          --set routingMode=tunnel
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become: false
+      become_user: "{{ ansible_user }}"
+      when:
+        - inventory_hostname == kubernetes_control_plane
+        - cilium_check.stdout_lines | length == 0
+      register: cilium_install
+      changed_when: cilium_install.rc == 0
+
+    - name: Wait for Cilium to be ready
+      ansible.builtin.command:
+        cmd: /usr/local/bin/cilium status --wait
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become: false
+      become_user: "{{ ansible_user }}"
+      when:
+        - inventory_hostname == kubernetes_control_plane
+        - cilium_install is changed
+      register: cilium_status
+      changed_when: false
+
+    # Phase 4: Generate Worker Join Command
+    - name: Generate join command for worker nodes
+      ansible.builtin.command:
+        cmd: kubeadm token create --print-join-command
+      register: k8s_join_command
+      when: inventory_hostname == kubernetes_control_plane
+      changed_when: false
+
+    - name: Save join command to temporary file
+      ansible.builtin.copy:
+        content: "{{ k8s_join_command.stdout }}"
+        dest: /tmp/k8s-join-command
+        mode: '0600'
+      when:
+        - inventory_hostname == kubernetes_control_plane
+        - k8s_join_command.stdout is defined
+
+    - name: Fetch join command from control plane
+      ansible.builtin.slurp:
+        src: /tmp/k8s-join-command
+      register: join_command_file
+      delegate_to: "{{ kubernetes_control_plane }}"
+      when: inventory_hostname in kubernetes_workers
+
+    - name: Set join command fact for worker nodes
+      ansible.builtin.set_fact:
+        kubernetes_join_command: "{{ join_command_file.content | b64decode | trim }}"
+      when:
+        - inventory_hostname in kubernetes_workers
+        - join_command_file.content is defined
+
+    # Phase 5: Join Worker Nodes
+    - name: Check if node is already joined to cluster
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+      when: inventory_hostname in kubernetes_workers
+
+    - name: Debug join command variable
+      ansible.builtin.debug:
+        msg: "kubernetes_join_command='{{ kubernetes_join_command | default('NOT SET') }}'"
+      when: inventory_hostname in kubernetes_workers
+
+    - name: Join worker nodes to cluster
+      ansible.builtin.command:
+        cmd: "{{ kubernetes_join_command }}"
+      when:
+        - inventory_hostname in kubernetes_workers
+        - not kubelet_conf.stat.exists
+        - kubernetes_join_command is defined
+      register: join_result
+      changed_when: join_result.rc == 0
+
+    # Phase 6: Verification and Cleanup
+    - name: Wait for all nodes to be ready
+      ansible.builtin.command:
+        cmd: kubectl get nodes --no-headers
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become: false
+      become_user: "{{ ansible_user }}"
+      register: kubectl_nodes
+      until: kubectl_nodes.stdout_lines | length == (kubernetes_workers | length + 1)
+      retries: 30
+      delay: 10
+      when: inventory_hostname == kubernetes_control_plane
+      changed_when: false
+
+    - name: Display cluster status
+      ansible.builtin.command:
+        cmd: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+      become: false
+      become_user: "{{ ansible_user }}"
+      register: cluster_status
+      when: inventory_hostname == kubernetes_control_plane
+      changed_when: false
+
+    - name: Show cluster information
+      ansible.builtin.debug:
+        var: cluster_status.stdout_lines
+      when:
+        - inventory_hostname == kubernetes_control_plane
+        - cluster_status.stdout_lines is defined
+
+    # Phase 7: Copy kubeconfig to control machine
+    - name: Copy kubeconfig to local machine
+      ansible.builtin.fetch:
+        src: "/home/{{ ansible_user }}/.kube/config"
+        dest: "{{ lookup('env', 'HOME') }}/.kube/pi-cluster-config"
+        flat: true
+      when: inventory_hostname == kubernetes_control_plane
+
+    - name: Display success summary
+      ansible.builtin.debug:
+        msg:
+          - "✅ Kubernetes {{ kubernetes_version }} cluster deployed successfully!"
+          - "✅ Control plane: {{ kubernetes_control_plane }}"
+          - "✅ Worker nodes: {{ kubernetes_workers | join(', ') }}"
+          - "✅ Pod network: {{ kubernetes_pod_network.cni }} ({{ kubernetes_pod_network.cidr }})"
+          - "✅ Advanced networking: eBPF-based with kube-proxy replacement"
+          - "📋 Kubeconfig copied to: ~/.kube/pi-cluster-config"
+          - "🔧 To use: export KUBECONFIG=~/.kube/pi-cluster-config"
+          - "🚀 Run verification: task play -- 7"
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+
+    - name: Restart kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+
+    - name: Reload UFW
+      community.general.ufw:
+        state: reloaded
