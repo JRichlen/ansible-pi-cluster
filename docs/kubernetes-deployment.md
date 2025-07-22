@@ -32,14 +32,23 @@ Before deploying Kubernetes, ensure you have completed the foundational steps:
 
 ## 🚀 Deployment Process
 
-### Step 1: Deploy Kubernetes Cluster
+### Step 1: Prepare Kubernetes Environment
 ```bash
-task playbook -- 5_deploy-kubernetes
+task playbook -- 5_prepare-kubernetes
 ```
 
-This playbook will:
+This preparation playbook will:
 - ✅ Configure all nodes with container runtime (containerd)
 - ✅ Install Kubernetes packages (kubelet, kubeadm, kubectl)
+- ✅ Configure system prerequisites and dependencies
+- ✅ Optimize settings for ARM64 Raspberry Pi hardware
+
+### Step 2: Deploy Kubernetes Cluster
+```bash
+task playbook -- 6_deploy-kubernetes
+```
+
+This deployment playbook will:
 - ✅ Initialize control plane on ubuntu-1
 - ✅ Install Cilium CNI with eBPF networking and kube-proxy replacement
 - ✅ Join worker nodes to the cluster
@@ -47,9 +56,9 @@ This playbook will:
 
 **Expected Runtime:** 15-25 minutes depending on network speed
 
-### Step 2: Verify Cluster Health (Optional but Recommended)
+### Step 3: Verify Cluster Health (Optional but Recommended)
 ```bash
-task playbook -- 6_verify-kubernetes
+task playbook -- 7_verify-kubernetes
 ```
 
 This verification playbook will:

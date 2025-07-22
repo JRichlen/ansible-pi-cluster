@@ -32,8 +32,9 @@ task playbook -- 1_deploy-ssh-key       # Deploy SSH keys with smart auth detect
 task playbook -- 2_test-master-connectivity  # Test master node SSH to workers
 task playbook -- 3_update-packages      # Update system packages
 task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
-task playbook -- 5_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
-task playbook -- 6_verify-kubernetes    # Verify cluster health and test workloads
+task playbook -- 5_prepare-kubernetes   # Prepare nodes for Kubernetes (container runtime, packages)
+task playbook -- 6_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
+task playbook -- 7_verify-kubernetes    # Verify cluster health and test workloads
 ```
 
 ### What You'll Experience
@@ -80,7 +81,7 @@ The system uses a three-layer approach:
 2. **Analysis & Decision** (Shell script) - Parses results and determines authentication method  
 3. **User Interaction** (Shell script) - Prompts for passwords only when needed
 
-See [WORKFLOW.md](WORKFLOW.md) for detailed architecture documentation.
+See [docs/WORKFLOW.md](docs/WORKFLOW.md) for detailed architecture documentation.
 
 ## ☸️ Kubernetes Deployment
 
@@ -92,10 +93,11 @@ task playbook -- 1_deploy-ssh-key    # Required for inter-node communication
 task playbook -- 3_update-packages   # Recommended for latest system packages
 
 # Deploy full Kubernetes cluster
-task playbook -- 5_deploy-kubernetes
+task playbook -- 5_prepare-kubernetes   # Prepare container runtime and packages
+task playbook -- 6_deploy-kubernetes    # Deploy full cluster
 
 # Verify cluster health (optional)
-task playbook -- 6_verify-kubernetes
+task playbook -- 7_verify-kubernetes
 ```
 
 **What gets deployed:**
@@ -115,25 +117,36 @@ See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for detailed 
 ## 📁 Project Structure
 
 ```
-├── Taskfile.yml              # Task runner configuration
-├── requirements.yml          # Ansible collections and roles
-├── inventories/
-│   └── hosts.yml             # Ansible inventory
-├── playbooks/
-│   ├── 0_test-connectivity.yml    # Silent connectivity testing
-│   ├── 1_deploy-ssh-key.yml      # SSH key deployment
-│   ├── 2_test-master-connectivity.yml # Master-worker SSH verification  
-│   ├── 3_update-packages.yml     # System updates
-│   ├── 4_install-tailscale.yml   # Tailscale VPN setup
-│   ├── 5_deploy-kubernetes.yml   # Full Kubernetes cluster deployment
-│   └── 6_verify-kubernetes.yml   # Cluster health verification
-├── scripts/
-│   ├── task-playbook.sh      # Consolidated intelligent playbook runner
-│   ├── task-*.sh            # Individual task implementations
-│   └── simulate-*.sh        # Testing utilities
-├── docs/
-│   └── kubernetes-deployment.md  # Kubernetes deployment guide
-└── WORKFLOW.md              # Detailed architecture documentation
+ansible-pi-cluster/
+├── 📋 Taskfile.yml              # Task runner configuration
+├── 📦 requirements.yml          # Ansible collections and roles
+├── 📂 inventories/
+│   └── 🏠 hosts.yml             # Ansible inventory
+├── 📂 playbooks/               # Numbered execution sequence
+│   ├── 0️⃣ 0_test-connectivity.yml     # Silent connectivity testing
+│   ├── 1️⃣ 1_deploy-ssh-key.yml        # SSH key deployment
+│   ├── 2️⃣ 2_test-master-connectivity.yml # Master-worker SSH verification
+│   ├── 3️⃣ 3_update-packages.yml       # System updates
+│   ├── 4️⃣ 4_install-tailscale.yml     # Tailscale VPN setup
+│   ├── 5️⃣ 5_prepare-kubernetes.yml    # Kubernetes preparation (runtime, packages)
+│   ├── 6️⃣ 6_deploy-kubernetes.yml     # Full Kubernetes cluster deployment
+│   └── 7️⃣ 7_verify-kubernetes.yml     # Cluster health verification
+├── 📂 scripts/                 # Shell script orchestration
+│   ├── 🎯 task-playbook.sh      # Consolidated intelligent playbook runner
+│   ├── 🧪 task-test.sh          # Connectivity testing coordinator
+│   ├── 📦 task-install.sh       # Dependency installer
+│   ├── 📋 task-list.sh          # Available tasks display
+│   ├── 🔄 task-all.sh           # Sequential execution controller
+│   └── 🧹 task-clean.sh         # Cleanup operations
+├── 📂 docs/                     # Documentation suite
+│   ├── 🏗️ ARCHITECTURE.md          # System design overview
+│   ├── 🔄 WORKFLOW.md              # Three-layer architecture details
+│   ├── 📚 API.md                   # Complete command reference
+│   ├── 🛠️ TROUBLESHOOTING.md       # Problem resolution guide
+│   ├── 🚀 DEPLOYMENT.md            # Production deployment guide
+│   ├── 🤝 CONTRIBUTING.md          # Development guidelines
+│   └── ☸️ kubernetes-deployment.md   # Kubernetes deployment guide
+└── 📄 README.md                # User-facing documentation (main entry point)
 ```
 
 ## 🔧 Configuration
@@ -199,7 +212,7 @@ If SSH keys aren't working, the system will automatically prompt for passwords w
 
 ## 📝 Contributing
 
-1. Follow the architecture principles in [WORKFLOW.md](WORKFLOW.md)
+1. Follow the architecture principles in [docs/WORKFLOW.md](docs/WORKFLOW.md)
 2. Keep playbook logic separate from user interaction
 3. Ensure all prompts work with TTY allocation
 4. Test with various connectivity scenarios

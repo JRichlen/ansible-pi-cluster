@@ -47,7 +47,7 @@ tasks:
     interactive: true
     cmds:
       - ./scripts/task-playbook.sh {{.CLI_ARGS}}
-  
+
   play:
     desc: Alias for 'playbook' task
     cmds:
