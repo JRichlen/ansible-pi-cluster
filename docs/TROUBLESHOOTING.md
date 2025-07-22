@@ -406,7 +406,7 @@ sudo journalctl -u containerd
 
 ## 📚 Related Documentation
 
-- [README.md](README.md) - Quick start and basic usage
+- [README.md](../README.md) - Quick start and basic usage
 - [WORKFLOW.md](WORKFLOW.md) - Understanding the system architecture
 - [API.md](API.md) - Complete command reference
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment guidelines

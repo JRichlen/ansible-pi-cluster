@@ -287,7 +287,7 @@ ANSIBLE_VERBOSITY=3 task playbook -- <playbook>
 
 ## 📚 Related Documentation
 
-- [README.md](README.md) - Quick start and feature overview
+- [README.md](../README.md) - Quick start and feature overview
 - [WORKFLOW.md](WORKFLOW.md) - Architecture and execution flow
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Problem resolution guide
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment considerations

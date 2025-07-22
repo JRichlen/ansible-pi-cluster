@@ -137,7 +137,7 @@ Connectivity test results are cached in `/tmp/ansible_connectivity_results/` wit
 
 ## 📚 Related Documentation
 
-- [README.md](README.md) - User-facing documentation and quick start
+- [README.md](../README.md) - User-facing documentation and quick start
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design and component overview
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions
 - [API.md](API.md) - Complete task runner command reference

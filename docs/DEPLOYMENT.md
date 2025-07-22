@@ -394,8 +394,8 @@ ansible -i inventories/hosts.yml ubuntu -m shell \
 
 ## 📚 Related Documentation
 
-- [README.md](README.md) - Quick start and basic usage
+- [README.md](../README.md) - Quick start and basic usage
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design and components
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Problem resolution
 - [API.md](API.md) - Complete command reference
-- [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) - Kubernetes-specific deployment details
+- [kubernetes-deployment.md](kubernetes-deployment.md) - Kubernetes-specific deployment details

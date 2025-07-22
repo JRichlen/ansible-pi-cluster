@@ -81,7 +81,7 @@ The system uses a three-layer approach:
 2. **Analysis & Decision** (Shell script) - Parses results and determines authentication method  
 3. **User Interaction** (Shell script) - Prompts for passwords only when needed
 
-See [WORKFLOW.md](WORKFLOW.md) for detailed architecture documentation.
+See [docs/WORKFLOW.md](docs/WORKFLOW.md) for detailed architecture documentation.
 
 ## ☸️ Kubernetes Deployment
 
@@ -138,15 +138,15 @@ ansible-pi-cluster/
 │   ├── 📋 task-list.sh          # Available tasks display
 │   ├── 🔄 task-all.sh           # Sequential execution controller
 │   └── 🧹 task-clean.sh         # Cleanup operations
-├── 📂 docs/
+├── 📂 docs/                     # Documentation suite
+│   ├── 🏗️ ARCHITECTURE.md          # System design overview
+│   ├── 🔄 WORKFLOW.md              # Three-layer architecture details
+│   ├── 📚 API.md                   # Complete command reference
+│   ├── 🛠️ TROUBLESHOOTING.md       # Problem resolution guide
+│   ├── 🚀 DEPLOYMENT.md            # Production deployment guide
+│   ├── 🤝 CONTRIBUTING.md          # Development guidelines
 │   └── ☸️ kubernetes-deployment.md   # Kubernetes deployment guide
-├── 📄 README.md                # User-facing documentation
-├── 🏗️ ARCHITECTURE.md          # System design overview
-├── 🔄 WORKFLOW.md              # Three-layer architecture details
-├── 🛠️ TROUBLESHOOTING.md       # Problem resolution guide
-├── 🚀 DEPLOYMENT.md            # Production deployment guide
-├── 📚 API.md                   # Complete command reference
-└── 🤝 CONTRIBUTING.md          # Development guidelines
+└── 📄 README.md                # User-facing documentation (main entry point)
 ```
 
 ## 🔧 Configuration
@@ -212,7 +212,7 @@ If SSH keys aren't working, the system will automatically prompt for passwords w
 
 ## 📝 Contributing
 
-1. Follow the architecture principles in [WORKFLOW.md](WORKFLOW.md)
+1. Follow the architecture principles in [docs/WORKFLOW.md](docs/WORKFLOW.md)
 2. Keep playbook logic separate from user interaction
 3. Ensure all prompts work with TTY allocation
 4. Test with various connectivity scenarios
