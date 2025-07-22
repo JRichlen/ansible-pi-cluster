@@ -117,26 +117,36 @@ See [docs/kubernetes-deployment.md](docs/kubernetes-deployment.md) for detailed 
 ## 📁 Project Structure
 
 ```
-├── Taskfile.yml              # Task runner configuration
-├── requirements.yml          # Ansible collections and roles
-├── inventories/
-│   └── hosts.yml             # Ansible inventory
-├── playbooks/
-│   ├── 0_test-connectivity.yml    # Silent connectivity testing
-│   ├── 1_deploy-ssh-key.yml      # SSH key deployment
-│   ├── 2_test-master-connectivity.yml # Master-worker SSH verification  
-│   ├── 3_update-packages.yml     # System updates
-│   ├── 4_install-tailscale.yml   # Tailscale VPN setup
-│   ├── 5_prepare-kubernetes.yml  # Kubernetes preparation (runtime, packages)
-│   ├── 6_deploy-kubernetes.yml   # Full Kubernetes cluster deployment
-│   └── 7_verify-kubernetes.yml   # Cluster health verification
-├── scripts/
-│   ├── task-playbook.sh      # Consolidated intelligent playbook runner
-│   ├── task-*.sh            # Individual task implementations
-│   └── simulate-*.sh        # Testing utilities
-├── docs/
-│   └── kubernetes-deployment.md  # Kubernetes deployment guide
-└── WORKFLOW.md              # Detailed architecture documentation
+ansible-pi-cluster/
+├── 📋 Taskfile.yml              # Task runner configuration
+├── 📦 requirements.yml          # Ansible collections and roles
+├── 📂 inventories/
+│   └── 🏠 hosts.yml             # Ansible inventory
+├── 📂 playbooks/               # Numbered execution sequence
+│   ├── 0️⃣ 0_test-connectivity.yml     # Silent connectivity testing
+│   ├── 1️⃣ 1_deploy-ssh-key.yml        # SSH key deployment
+│   ├── 2️⃣ 2_test-master-connectivity.yml # Master-worker SSH verification
+│   ├── 3️⃣ 3_update-packages.yml       # System updates
+│   ├── 4️⃣ 4_install-tailscale.yml     # Tailscale VPN setup
+│   ├── 5️⃣ 5_prepare-kubernetes.yml    # Kubernetes preparation (runtime, packages)
+│   ├── 6️⃣ 6_deploy-kubernetes.yml     # Full Kubernetes cluster deployment
+│   └── 7️⃣ 7_verify-kubernetes.yml     # Cluster health verification
+├── 📂 scripts/                 # Shell script orchestration
+│   ├── 🎯 task-playbook.sh      # Consolidated intelligent playbook runner
+│   ├── 🧪 task-test.sh          # Connectivity testing coordinator
+│   ├── 📦 task-install.sh       # Dependency installer
+│   ├── 📋 task-list.sh          # Available tasks display
+│   ├── 🔄 task-all.sh           # Sequential execution controller
+│   └── 🧹 task-clean.sh         # Cleanup operations
+├── 📂 docs/
+│   └── ☸️ kubernetes-deployment.md   # Kubernetes deployment guide
+├── 📄 README.md                # User-facing documentation
+├── 🏗️ ARCHITECTURE.md          # System design overview
+├── 🔄 WORKFLOW.md              # Three-layer architecture details
+├── 🛠️ TROUBLESHOOTING.md       # Problem resolution guide
+├── 🚀 DEPLOYMENT.md            # Production deployment guide
+├── 📚 API.md                   # Complete command reference
+└── 🤝 CONTRIBUTING.md          # Development guidelines
 ```
 
 ## 🔧 Configuration

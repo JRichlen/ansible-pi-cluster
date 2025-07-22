@@ -40,6 +40,7 @@ User runs: task playbook -- <playbook-name>
      ↓
 ┌─────────────────────────────────────────────┐
 │ Layer 1: Connectivity Testing              │
+│ File: playbooks/0_test-connectivity.yml    │
 │ • Silent connectivity check                 │
 │ • SSH authentication detection             │
 │ • Results stored in /tmp/                  │
@@ -47,6 +48,7 @@ User runs: task playbook -- <playbook-name>
      ↓
 ┌─────────────────────────────────────────────┐
 │ Layer 2: Analysis & Decision               │
+│ File: scripts/task-playbook.sh             │
 │ • Parse connectivity results               │
 │ • Categorize hosts by auth method          │
 │ • Determine if user input needed           │
@@ -54,9 +56,18 @@ User runs: task playbook -- <playbook-name>
      ↓
 ┌─────────────────────────────────────────────┐
 │ Layer 3: User Interaction                  │
+│ File: scripts/task-playbook.sh             │
 │ • Show clear status summary                │
 │ • Prompt for passwords if needed           │
 │ • Execute target playbook                  │
+└─────────────────────────────────────────────┘
+     ↓
+┌─────────────────────────────────────────────┐
+│ Target Playbook Execution                  │
+│ File: playbooks/<selected-playbook>.yml    │
+│ • Run automation tasks                     │
+│ • Apply configurations                     │
+│ • Report results                           │
 └─────────────────────────────────────────────┘
 ```
 
