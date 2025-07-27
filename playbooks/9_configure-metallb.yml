@@ -38,9 +38,9 @@
         NETWORK=$(echo $PRIMARY_IP | cut -d. -f1-3)
         echo "primary_ip=$PRIMARY_IP"
         echo "network_base=$NETWORK"
-        # Calculate suggested IP pool range (last 21 IPs in the subnet)
-        echo "pool_start=$NETWORK.200"
-        echo "pool_end=$NETWORK.220"
+        # Calculate suggested IP pool range (100 IPs: .151-.250)
+        echo "pool_start=$NETWORK.151"
+        echo "pool_end=$NETWORK.250"
       register: network_discovery
       changed_when: false
 
@@ -177,7 +177,7 @@
             seconds: 15
             prompt: "Waiting for MetalLB webhook to fully initialize..."
 
-        - name: Create IPAddressPool
+        - name: Create MetalLB IPAddressPool with 100 IPs (192.168.x.151-250)
           kubernetes.core.k8s:
             definition:
               apiVersion: metallb.io/v1beta1
