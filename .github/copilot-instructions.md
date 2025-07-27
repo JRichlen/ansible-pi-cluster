@@ -175,3 +175,6 @@ done
 - **Comprehensive documentation** for user-facing changes
 - **Self-documenting code** following project conventions
 - **Helpful error messages** maintaining user experience standards
+
+## Spec-Based Development Cleanup
+- [ ] Delete temporary files (REQUIREMENTS.md, DESIGN.md, IMPLEMENTATION.md) before you start a new feature.

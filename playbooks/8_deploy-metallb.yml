@@ -1,0 +1,119 @@
+---
+- name: Deploy MetalLB LoadBalancer to Kubernetes Cluster
+  hosts: ubuntu-1  # Master node only
+  gather_facts: false
+  become: false
+  vars:
+    metallb_namespace: metallb-system
+    metallb_version: "0.13.12"
+
+  pre_tasks:
+    - name: Check Kubernetes cluster connectivity
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
+      failed_when: cluster_nodes.resources | length == 0
+
+    - name: Display MetalLB deployment start
+      ansible.builtin.debug:
+        msg: |
+          🚀 Deploying MetalLB LoadBalancer to Kubernetes Cluster
+          
+          📊 This play ensures MetalLB is deployed (idempotently)
+          🔧 Configuration and IP pools are handled in play 9
+
+  tasks:
+    - name: Check if MetalLB namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ metallb_namespace }}"
+      register: metallb_ns_check
+
+    - name: Create MetalLB namespace if needed
+      kubernetes.core.k8s:
+        name: "{{ metallb_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        definition:
+          metadata:
+            labels:
+              app.kubernetes.io/name: metallb
+      when: metallb_ns_check.resources | length == 0
+
+    - name: Check if MetalLB controller is already deployed
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: controller
+        namespace: "{{ metallb_namespace }}"
+      register: metallb_controller_check
+
+    - name: Deploy MetalLB if not present
+      when: metallb_controller_check.resources | length == 0
+      block:
+        - name: Apply MetalLB installation manifest
+          kubernetes.core.k8s:
+            state: present
+            src: "https://raw.githubusercontent.com/metallb/metallb/v{{ metallb_version }}/config/manifests/metallb-native.yaml"
+            wait: true
+            wait_timeout: 300
+
+        - name: Wait for MetalLB controller to be ready
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            name: controller
+            namespace: "{{ metallb_namespace }}"
+            wait: true
+            wait_condition:
+              type: Available
+              status: "True"
+            wait_timeout: 300
+
+        - name: Display deployment success
+          ansible.builtin.debug:
+            msg: |
+              ✅ MetalLB deployed successfully
+              📊 Controller and speakers are now running
+
+    - name: Verify MetalLB is running (idempotent check)
+      when: metallb_controller_check.resources | length > 0
+      ansible.builtin.debug:
+        msg: |
+          ✅ MetalLB already deployed and running
+          📊 Skipping deployment (idempotent operation)
+
+    - name: Get final MetalLB status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ metallb_namespace }}"
+        label_selectors:
+          - "app=metallb"
+      register: metallb_pods
+
+    - name: Display MetalLB status
+      ansible.builtin.debug:
+        msg: |
+          📊 MetalLB Status Summary:
+          Namespace: {{ metallb_namespace }}
+          Total Pods: {{ metallb_pods.resources | length }}
+          Running Pods: {{ metallb_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length }}
+
+  post_tasks:
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          🎉 MetalLB deployment completed!
+          
+          ⏭️  Next Steps:
+          1. Run play 9 to configure IP pools and L2 advertisement
+          2. Run play 10 to test LoadBalancer functionality
+          
+          💡 Full workflow:
+          task playbook -- 8_deploy-metallb     # ✅ Complete
+          task playbook -- 9_configure-metallb  # ⏭️  Next
+          task playbook -- 10_test-metallb      # 🧪 Test

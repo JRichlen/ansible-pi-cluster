@@ -35,6 +35,7 @@ task playbook -- 4_install-tailscale    # Install and configure Tailscale VPN
 task playbook -- 5_prepare-kubernetes   # Prepare nodes for Kubernetes (container runtime, packages)
 task playbook -- 6_deploy-kubernetes    # Deploy Kubernetes cluster (requires SSH keys)
 task playbook -- 7_verify-kubernetes    # Verify cluster health and test workloads
+task playbook -- 8_deploy-metallb       # Deploy MetalLB LoadBalancer for service exposure
 ```
 
 ### What You'll Experience

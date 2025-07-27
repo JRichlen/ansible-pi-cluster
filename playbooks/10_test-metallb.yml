@@ -1,0 +1,125 @@
+---
+- name: Test MetalLB LoadBalancer Functionality
+  hosts: ubuntu-1  # Master node only
+  gather_facts: false
+  become: false
+  vars:
+    test_namespace: metallb-test
+    test_service_name: nginx-metallb-test
+
+  tasks:
+    - name: Create test namespace
+      kubernetes.core.k8s:
+        name: "{{ test_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: Deploy test nginx application
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ test_service_name }}"
+            namespace: "{{ test_namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ test_service_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ test_service_name }}"
+              spec:
+                containers:
+                  - name: nginx
+                    image: nginx:alpine
+                    ports:
+                      - containerPort: 80
+        state: present
+
+    - name: Create LoadBalancer service
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ test_service_name }}"
+            namespace: "{{ test_namespace }}"
+          spec:
+            type: LoadBalancer
+            ports:
+              - port: 80
+                targetPort: 80
+            selector:
+              app: "{{ test_service_name }}"
+        state: present
+
+    - name: Wait for LoadBalancer to get external IP
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: "{{ test_service_name }}"
+        namespace: "{{ test_namespace }}"
+      register: lb_service
+      until: lb_service.resources[0].status.loadBalancer.ingress is defined
+      retries: 24  # 24 * 5 seconds = 2 minutes
+      delay: 5
+
+    - name: Display LoadBalancer IP
+      ansible.builtin.debug:
+        msg: |
+          🎉 MetalLB Test Results:
+          Service: {{ test_service_name }}
+          External IP: {{ lb_service.resources[0].status.loadBalancer.ingress[0].ip | default('Pending') }}
+
+          {% if lb_service.resources[0].status.loadBalancer.ingress is defined %}
+          ✅ Success! MetalLB assigned IP from pool
+          Test: curl http://{{ lb_service.resources[0].status.loadBalancer.ingress[0].ip }}
+          {% else %}
+          ⚠️  LoadBalancer IP still pending - check MetalLB configuration
+          {% endif %}
+
+    - name: Test HTTP connectivity to LoadBalancer IP
+      ansible.builtin.uri:
+        url: "http://{{ lb_service.resources[0].status.loadBalancer.ingress[0].ip }}"
+        method: GET
+        timeout: 10
+      register: http_test
+      when: lb_service.resources[0].status.loadBalancer.ingress is defined
+      failed_when: false
+
+    - name: Display connectivity test results
+      ansible.builtin.debug:
+        msg: |
+          🔗 Connectivity Test:
+          {% if http_test.status is defined and http_test.status == 200 %}
+          ✅ HTTP connectivity successful ({{ http_test.status }})
+          MetalLB is working correctly!
+          {% elif lb_service.resources[0].status.loadBalancer.ingress is defined %}
+          ⚠️  HTTP test failed: {{ http_test.msg | default('Unknown error') }}
+          {% else %}
+          ⏳ Skipped - no external IP assigned yet
+          {% endif %}
+
+    - name: Clean up test resources
+      kubernetes.core.k8s:
+        name: "{{ test_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: absent
+        wait: true
+        wait_timeout: 60
+      when: ansible_check_mode is not defined or not ansible_check_mode
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          ✅ MetalLB test completed
+
+          📋 Next Steps:
+          1. Reserve IP range from pool configuration in your router's DHCP settings
+          2. Services with type: LoadBalancer will now get real IPs
+          3. Ready to proceed with ingress controller deployment

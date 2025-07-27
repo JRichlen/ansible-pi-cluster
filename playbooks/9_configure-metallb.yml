@@ -1,0 +1,283 @@
+---
+- name: Configure MetalLB LoadBalancer with Network Discovery
+  hosts: ubuntu-1  # Master node only
+  gather_facts: true
+  become: false
+  vars:
+    metallb_namespace: metallb-system
+    metallb_version: "0.13.12"
+    ip_pool_name: "default-pool"
+    l2_advertisement_name: "default-advertisement"
+
+  pre_tasks:
+    - name: Check Kubernetes cluster connectivity
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
+      failed_when: cluster_nodes.resources | length == 0
+
+    - name: Display MetalLB configuration start
+      ansible.builtin.debug:
+        msg: |
+          🔧 Configuring MetalLB LoadBalancer with Network Discovery
+
+          🎯 This will:
+          - Ensure MetalLB is deployed (idempotently)
+          - Discover network range automatically
+          - Configure IP pool and L2 advertisement
+          - Verify configuration is working
+
+  tasks:
+    - name: Discover network information
+      ansible.builtin.shell: |
+        set -o pipefail
+        # Get the primary IP address (first non-loopback IPv4)
+        PRIMARY_IP=$(hostname -I | awk '{print $1}')
+        # Extract network portion (assumes /24)
+        NETWORK=$(echo $PRIMARY_IP | cut -d. -f1-3)
+        echo "primary_ip=$PRIMARY_IP"
+        echo "network_base=$NETWORK"
+        # Calculate suggested IP pool range (last 21 IPs in the subnet)
+        echo "pool_start=$NETWORK.200"
+        echo "pool_end=$NETWORK.220"
+      register: network_discovery
+      changed_when: false
+
+    - name: Parse network information
+      ansible.builtin.set_fact:
+        primary_ip: "{{ network_discovery.stdout_lines | select('match', '^primary_ip=') | first | regex_replace('^primary_ip=', '') }}"
+        network_base: "{{ network_discovery.stdout_lines | select('match', '^network_base=') | first | regex_replace('^network_base=', '') }}"
+        ip_pool_start: "{{ network_discovery.stdout_lines | select('match', '^pool_start=') | first | regex_replace('^pool_start=', '') }}"
+        ip_pool_end: "{{ network_discovery.stdout_lines | select('match', '^pool_end=') | first | regex_replace('^pool_end=', '') }}"
+
+    - name: Display discovered network information
+      ansible.builtin.debug:
+        msg: |
+          🔍 Network Discovery Results:
+          Primary IP: {{ primary_ip }}
+          Network Base: {{ network_base }}
+          Suggested IP Pool: {{ ip_pool_start }} - {{ ip_pool_end }}
+
+    - name: Check if MetalLB namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ metallb_namespace }}"
+      register: metallb_ns_check
+
+    - name: Create MetalLB namespace if needed
+      kubernetes.core.k8s:
+        name: "{{ metallb_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        definition:
+          metadata:
+            labels:
+              app.kubernetes.io/name: metallb
+      when: metallb_ns_check.resources | length == 0
+
+    - name: Check if MetalLB controller is deployed
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: controller
+        namespace: "{{ metallb_namespace }}"
+      register: metallb_controller_check
+
+    - name: Deploy MetalLB if not present
+      when: metallb_controller_check.resources | length == 0
+      block:
+        - name: Apply MetalLB installation manifest
+          kubernetes.core.k8s:
+            state: present
+            src: "https://raw.githubusercontent.com/metallb/metallb/v{{ metallb_version }}/config/manifests/metallb-native.yaml"
+            wait: true
+            wait_timeout: 300
+
+        - name: Wait for MetalLB controller to be ready
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            name: controller
+            namespace: "{{ metallb_namespace }}"
+            wait: true
+            wait_condition:
+              type: Available
+              status: "True"
+            wait_timeout: 300
+
+        - name: Wait for MetalLB speakers to be ready
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: DaemonSet
+            name: speaker
+            namespace: "{{ metallb_namespace }}"
+            wait: true
+            wait_condition:
+              type: Available
+              status: "True"
+            wait_timeout: 300
+
+    - name: Check current MetalLB pod status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ metallb_namespace }}"
+        label_selectors:
+          - "app=metallb"
+      register: metallb_pods
+
+    - name: Display MetalLB deployment status
+      ansible.builtin.debug:
+        msg: |
+          📊 MetalLB Deployment Status:
+          Controller: {{ 'Running' if metallb_controller_check.resources | length > 0 else 'Deployed' }}
+          Total Pods: {{ metallb_pods.resources | length }}
+          Running Pods: {{ metallb_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length }}
+
+    - name: Check if IPAddressPool already exists
+      kubernetes.core.k8s_info:
+        api_version: metallb.io/v1beta1
+        kind: IPAddressPool
+        name: "{{ ip_pool_name }}"
+        namespace: "{{ metallb_namespace }}"
+      register: existing_ip_pool
+
+    - name: Check existing IP pool configuration
+      when: existing_ip_pool.resources | length > 0
+      block:
+        - name: Display existing IP pool
+          ansible.builtin.debug:
+            msg: |
+              ✅ IPAddressPool '{{ ip_pool_name }}' already exists
+              Current Range: {{ existing_ip_pool.resources[0].spec.addresses | join(', ') }}
+              Status: Active
+
+        - name: Set pool already configured flag
+          ansible.builtin.set_fact:
+            ip_pool_configured: true
+
+    - name: Configure IP pool if not exists
+      when: existing_ip_pool.resources | length == 0
+      block:
+        - name: Wait for MetalLB webhook to be ready
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Service
+            name: webhook-service
+            namespace: "{{ metallb_namespace }}"
+            wait: true
+            wait_timeout: 120
+          failed_when: false
+
+        - name: Pause for webhook initialization
+          ansible.builtin.pause:
+            seconds: 15
+            prompt: "Waiting for MetalLB webhook to fully initialize..."
+
+        - name: Create IPAddressPool
+          kubernetes.core.k8s:
+            definition:
+              apiVersion: metallb.io/v1beta1
+              kind: IPAddressPool
+              metadata:
+                name: "{{ ip_pool_name }}"
+                namespace: "{{ metallb_namespace }}"
+                labels:
+                  managed-by: ansible-pi-cluster
+              spec:
+                addresses:
+                  - "{{ ip_pool_start }}-{{ ip_pool_end }}"
+            state: present
+
+        - name: Set pool newly configured flag
+          ansible.builtin.set_fact:
+            ip_pool_configured: false
+
+    - name: Check if L2Advertisement exists
+      kubernetes.core.k8s_info:
+        api_version: metallb.io/v1beta1
+        kind: L2Advertisement
+        name: "{{ l2_advertisement_name }}"
+        namespace: "{{ metallb_namespace }}"
+      register: existing_l2_adv
+
+    - name: Create L2Advertisement if not exists
+      when: existing_l2_adv.resources | length == 0
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: "{{ l2_advertisement_name }}"
+            namespace: "{{ metallb_namespace }}"
+            labels:
+              managed-by: ansible-pi-cluster
+          spec:
+            ipAddressPools:
+              - "{{ ip_pool_name }}"
+        state: present
+
+    - name: Verify final configuration
+      block:
+        - name: Get IPAddressPool status
+          kubernetes.core.k8s_info:
+            api_version: metallb.io/v1beta1
+            kind: IPAddressPool
+            name: "{{ ip_pool_name }}"
+            namespace: "{{ metallb_namespace }}"
+          register: final_ip_pool
+
+        - name: Get L2Advertisement status
+          kubernetes.core.k8s_info:
+            api_version: metallb.io/v1beta1
+            kind: L2Advertisement
+            name: "{{ l2_advertisement_name }}"
+            namespace: "{{ metallb_namespace }}"
+          register: final_l2_adv
+
+        - name: Display final configuration status
+          ansible.builtin.debug:
+            msg: |
+              ✅ MetalLB Configuration Complete
+
+              📋 Configuration Summary:
+              Namespace: {{ metallb_namespace }}
+
+              🏊 IP Address Pool:
+              Name: {{ ip_pool_name }}
+              Range: {{ final_ip_pool.resources[0].spec.addresses | join(', ') }}
+              Status: {{ 'Previously Configured' if ip_pool_configured | default(true) else 'Newly Created' }}
+
+              📡 L2 Advertisement:
+              Name: {{ l2_advertisement_name }}
+              Mode: Layer 2 (ARP)
+              Status: {{ 'Active' if final_l2_adv.resources | length > 0 else 'Error' }}
+
+              🎯 LoadBalancer services will now receive IPs from: {{ ip_pool_start }} - {{ ip_pool_end }}
+
+  post_tasks:
+    - name: Display router configuration reminder
+      ansible.builtin.debug:
+        msg: |
+          🔧 Important: Router Configuration Required
+
+          To avoid IP conflicts, reserve the following range in your router's DHCP settings:
+          📍 Reserve: {{ ip_pool_start }} - {{ ip_pool_end }}
+          📍 Network: {{ network_base }}.0/24
+          📍 Total IPs: 21 addresses for LoadBalancer services
+
+          📋 Next Steps:
+          1. Configure DHCP reservations in your router
+          2. Test MetalLB with: task playbook -- 10_test-metallb
+          3. Deploy ingress controller once testing passes
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          🎉 MetalLB configuration completed successfully!
+
+          ✅ Ready for LoadBalancer services
+          ⏭️  Run: task playbook -- 10_test-metallb to verify functionality

@@ -39,15 +39,22 @@ show_help() {
   echo "  task playbook -- 1 --check            # Dry run"
   echo "  task playbook -- 1 --limit pi-node-01 # Target specific host"
   echo ""
-  echo "Available playbooks:"
+  echo "Available numbered playbooks (main workflow):"
+  for playbook in "$PLAYBOOKS_DIR"/[0-9]_*.yml; do
+    if [ -f "$playbook" ]; then
+      basename_playbook=$(basename "$playbook" .yml)
+      number=$(echo "$basename_playbook" | cut -d'_' -f1)
+      name=$(echo "$basename_playbook" | cut -d'_' -f2-)
+      echo "  $number - $name ($basename_playbook.yml)"
+    fi
+  done
+  
+  echo ""
+  echo "Available utility playbooks (call by name):"
   for playbook in "$PLAYBOOKS_DIR"/*.yml; do
     if [ -f "$playbook" ]; then
       basename_playbook=$(basename "$playbook" .yml)
-      if echo "$basename_playbook" | grep -q '^[0-9]_'; then
-        number=$(echo "$basename_playbook" | cut -d'_' -f1)
-        name=$(echo "$basename_playbook" | cut -d'_' -f2-)
-        echo "  $number - $name ($basename_playbook.yml)"
-      else
+      if ! echo "$basename_playbook" | grep -q '^[0-9]_'; then
         echo "  $basename_playbook ($basename_playbook.yml)"
       fi
     fi
@@ -328,15 +335,22 @@ main() {
     if ! resolved_name=$(resolve_playbook_name "$playbook_input"); then
         echo -e "${RED}❌ Could not find playbook matching: $playbook_input${NC}"
         echo ""
-        echo "Available playbooks:"
+        echo "Available numbered playbooks (main workflow):"
+        for playbook in "$PLAYBOOKS_DIR"/[0-9]_*.yml; do
+            if [ -f "$playbook" ]; then
+                basename_playbook=$(basename "$playbook" .yml)
+                number=$(echo "$basename_playbook" | cut -d'_' -f1)
+                name=$(echo "$basename_playbook" | cut -d'_' -f2-)
+                echo "  $number - $name ($basename_playbook.yml)"
+            fi
+        done
+        
+        echo ""
+        echo "Available utility playbooks (call by name):"
         for playbook in "$PLAYBOOKS_DIR"/*.yml; do
             if [ -f "$playbook" ]; then
                 basename_playbook=$(basename "$playbook" .yml)
-                if echo "$basename_playbook" | grep -q '^[0-9]_'; then
-                    number=$(echo "$basename_playbook" | cut -d'_' -f1)
-                    name=$(echo "$basename_playbook" | cut -d'_' -f2-)
-                    echo "  $number - $name ($basename_playbook.yml)"
-                else
+                if ! echo "$basename_playbook" | grep -q '^[0-9]_'; then
                     echo "  $basename_playbook ($basename_playbook.yml)"
                 fi
             fi

@@ -1,0 +1,204 @@
+---
+- name: Discover Network Configuration for MetalLB
+  hosts: ubuntu-1  # Run on master node only for network discovery
+  gather_facts: true
+  become: false
+  vars:
+    scan_timeout: 3
+  
+  tasks:
+    - name: Display network discovery start
+      ansible.builtin.debug:
+        msg: |
+          🔍 Discovering network configuration for MetalLB deployment
+          This will help determine a safe IP pool for LoadBalancer services
+
+    - name: Get primary network interface information
+      ansible.builtin.set_fact:
+        primary_interface: "{{ ansible_default_ipv4.interface }}"
+        primary_ip: "{{ ansible_default_ipv4.address }}"
+        gateway_ip: "{{ ansible_default_ipv4.gateway }}"
+        network_mask: "{{ ansible_default_ipv4.netmask }}"
+        subnet_cidr: "{{ ansible_default_ipv4.network }}/{{ ansible_default_ipv4.prefix }}"
+
+    - name: Display current network configuration
+      ansible.builtin.debug:
+        msg: |
+          📊 Current Network Configuration:
+          Interface: {{ primary_interface }}
+          Node IP: {{ primary_ip }}
+          Gateway: {{ gateway_ip }}
+          Subnet: {{ subnet_cidr }}
+          Netmask: {{ network_mask }}
+
+    - name: Calculate network base for scanning
+      ansible.builtin.set_fact:
+        network_base: "{{ gateway_ip.split('.')[0:3] | join('.') }}"
+        
+    - name: Display scan information
+      ansible.builtin.debug:
+        msg: |
+          🔎 Scanning network {{ network_base }}.1-254 for active devices
+          This helps identify DHCP range and available IPs for MetalLB
+
+    - name: Scan network for active IPs (common ranges)
+      ansible.builtin.shell: |
+        # Quick ping sweep of common IP ranges
+        active_ips=""
+        for i in {1..10} {50..60} {100..110} {150..160} {200..210} {250..254}; do
+          if ping -c 1 -W {{ scan_timeout }} {{ network_base }}.${i} >/dev/null 2>&1; then
+            active_ips="$active_ips {{ network_base }}.${i}"
+          fi
+        done
+        echo "$active_ips"
+      register: quick_scan_result
+      changed_when: false
+
+    - name: Set cluster information from current node
+      ansible.builtin.set_fact:
+        cluster_node_example: "{{ primary_ip }}"
+
+    - name: Display discovered active IPs
+      ansible.builtin.debug:
+        msg: |
+          🖥️  Active IPs found: {{ quick_scan_result.stdout.split() | length }} devices
+          {{ quick_scan_result.stdout.split() | join(', ') }}
+          
+          🏠 Cluster Node Example IP: {{ cluster_node_example }}
+          (All nodes should be in the {{ network_base }}.x range)
+
+    - name: Analyze network ranges
+      ansible.builtin.set_fact:
+        gateway_ip_last_octet: "{{ gateway_ip.split('.')[3] | int }}"
+        active_ips_list: "{{ quick_scan_result.stdout.split() }}"
+        
+    - name: Calculate recommended MetalLB IP pool
+      ansible.builtin.set_fact:
+        # Conservative approach: use .200-.220 range unless conflicts detected
+        recommended_start_ip: "{{ network_base }}.200"
+        recommended_end_ip: "{{ network_base }}.220"
+        recommended_pool_size: 21
+        
+    - name: Check for conflicts in recommended range
+      ansible.builtin.shell: |
+        conflicts=""
+        for i in {200..220}; do
+          ip="{{ network_base }}.${i}"
+          if ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
+            conflicts="$conflicts $ip"
+          fi
+        done
+        echo "$conflicts"
+      register: conflict_check
+      changed_when: false
+
+    - name: Adjust recommendations if conflicts found
+      ansible.builtin.set_fact:
+        has_conflicts: "{{ conflict_check.stdout.strip() != '' }}"
+        conflicting_ips: "{{ conflict_check.stdout.split() }}"
+        
+    - name: Alternative IP range if conflicts detected
+      ansible.builtin.set_fact:
+        alt_start_ip: "{{ network_base }}.230"
+        alt_end_ip: "{{ network_base }}.240"
+      when: has_conflicts
+
+    - name: Display MetalLB recommendations
+      ansible.builtin.debug:
+        msg: |
+          🎯 MetalLB Configuration Recommendations:
+          
+          {% if not has_conflicts %}
+          ✅ Primary Recommendation:
+          IP Pool: {{ recommended_start_ip }} - {{ recommended_end_ip }}
+          Pool Size: {{ recommended_pool_size }} addresses
+          Status: No conflicts detected in this range
+          {% else %}
+          ⚠️  Primary range has conflicts: {{ conflicting_ips | join(', ') }}
+          
+          🔄 Alternative Recommendation:
+          IP Pool: {{ alt_start_ip }} - {{ alt_end_ip }}
+          Pool Size: 11 addresses
+          Status: Check this range for conflicts before deployment
+          {% endif %}
+          
+          📋 Next Steps:
+          1. Reserve this IP range in your router's DHCP settings
+          2. Ensure no static IP assignments in this range
+          3. Deploy MetalLB with these settings
+
+    - name: Generate MetalLB configuration preview
+      ansible.builtin.debug:
+        msg: |
+          📄 MetalLB IPAddressPool Configuration:
+          
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: default-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+            - {{ alt_start_ip if has_conflicts else recommended_start_ip }}-{{ alt_end_ip if has_conflicts else recommended_end_ip }}
+
+    - name: Save network discovery results
+      ansible.builtin.copy:
+        content: |
+          # Network Discovery Results - {{ ansible_date_time.iso8601 }}
+          
+          ## Network Configuration
+          Primary Interface: {{ primary_interface }}
+          Node IP: {{ primary_ip }}
+          Gateway: {{ gateway_ip }}
+          Subnet: {{ subnet_cidr }}
+          Network Base: {{ network_base }}
+          
+          ## Active IPs Discovered
+          {{ active_ips_list | join('\n') }}
+          
+          ## Cluster Node Information
+          Example Node IP: {{ cluster_node_example }}
+          All nodes should be in {{ network_base }}.x range
+          
+          ## MetalLB Recommendations
+          {% if not has_conflicts %}
+          Recommended IP Pool: {{ recommended_start_ip }} - {{ recommended_end_ip }}
+          Pool Size: {{ recommended_pool_size }} addresses
+          Status: No conflicts detected
+          {% else %}
+          Primary Range Conflicts: {{ conflicting_ips | join(', ') }}
+          Alternative IP Pool: {{ alt_start_ip }} - {{ alt_end_ip }}
+          Pool Size: 11 addresses
+          {% endif %}
+          
+          ## Router Configuration Needed
+          1. Reserve MetalLB IP range in DHCP settings
+          2. Ensure no static assignments in range
+          3. Document reserved range for future reference
+          
+          ## MetalLB Configuration
+          ```yaml
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: default-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+            - {{ alt_start_ip if has_conflicts else recommended_start_ip }}-{{ alt_end_ip if has_conflicts else recommended_end_ip }}
+          ```
+        dest: /tmp/metallb-network-discovery.txt
+        mode: '0644'
+      delegate_to: localhost
+
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          ✅ Network discovery completed successfully!
+          
+          📁 Results saved to: /tmp/metallb-network-discovery.txt
+          
+          🎯 Recommended MetalLB IP Pool:
+          {{ alt_start_ip if has_conflicts else recommended_start_ip }} - {{ alt_end_ip if has_conflicts else recommended_end_ip }}
+          
+          🔧 Next: Review router DHCP settings and proceed with MetalLB deployment
